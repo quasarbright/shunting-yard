@@ -708,6 +708,35 @@
     const depth = () => Math.max(3, L * 0.11);
     const downX = () => Math.sin(rot), downY = () => Math.cos(rot);
 
+    // a box at (x, y) layout units, `along` long in direction d and `across` wide,
+    // with its side showing below it on screen
+    function block(x, y, d, along, across, col, lift = depth() * 0.8, radius = 0.03) {
+      const ang = Math.atan2(d.y, d.x);
+      const face = (ox2, oy2) => {
+        ctx.save(); ctx.translate(sx(x) + ox2, sy(y) + oy2); ctx.rotate(ang);
+        roundRect(-along * L / 2, -across * L / 2, along * L, across * L, radius * L); ctx.fill(); ctx.restore();
+      };
+      ctx.fillStyle = shade(col);
+      for (let k = lift; k > 0; k -= 1) face(downX() * k, downY() * k);
+      ctx.fillStyle = col; face(0, 0);
+    }
+    function drawBufferStop(n) {
+      const d = legDir(n.tracks[0], n.id), p = { x: -d.y, y: d.x }; // d points into the track
+      const at = (back, side) => [n.x - d.x * back + p.x * side, n.y - d.y * back + p.y * side];
+      // the frame: the rails carry on behind the beam, propping it up
+      for (const side of [-1, 1]) {
+        const [fx, fy] = at(0.3, side * 0.17);
+        block(fx, fy, d, 0.36, 0.06, shade(C.muted, 0.2), depth() * 0.4, 0.02);
+      }
+      // the beam, then the two buffers on its track side
+      const [bx, by] = at(0.1, 0);
+      block(bx, by, d, 0.12, 0.62, C.muted);
+      for (const side of [-1, 1]) {
+        const [px, py] = at(0.0, side * 0.17);
+        block(px, py, d, 0.08, 0.13, "#c9cfd3", depth() * 0.5, 0.04);
+      }
+    }
+
     function drawCar(c, pose, opts = {}) {
       const car = cars[c];
       const w = L * 0.84, h = L * 0.42, r = L * 0.07, col = carColor(car);
@@ -862,19 +891,10 @@
         });
         if (hot && locked) { const n = yard.nodes[S.id]; labels.push({ text: "car on the points", x: sx(n.x), y: sy(n.y), dy: L * 0.6 }); }
       }
-      // buffer stops
+      // buffer stops: a crossbeam where the rails end, two buffers facing the track,
+      // and a braced frame behind, standing up off the panel like the cars do
       for (const n of Object.values(yard.nodes)) {
-        if (n.kind !== "buffer") continue;
-        const d = legDir(n.tracks[0], n.id);
-        const x = sx(n.x), y = sy(n.y), r = L * 0.24;
-        ctx.lineWidth = Math.max(3, L * 0.08); ctx.lineCap = "butt";
-        for (const [k, col] of [[depth() * 0.7, shade(C.muted)], [0, C.muted]]) {
-          const ox2 = downX() * k, oy2 = downY() * k;
-          ctx.beginPath(); ctx.moveTo(x - d.y * r + ox2, y + d.x * r + oy2); ctx.lineTo(x + d.y * r + ox2, y - d.x * r + oy2);
-          if (k) ctx.lineTo(x + d.y * r, y - d.x * r), ctx.lineTo(x - d.y * r, y + d.x * r), ctx.closePath();
-          ctx.strokeStyle = col; ctx.stroke();
-        }
-        ctx.lineCap = "round";
+        if (n.kind === "buffer") drawBufferStop(n);
       }
 
       // goal: a marker beside the track for each car, in order from the goal's end,

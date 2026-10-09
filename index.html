@@ -955,20 +955,21 @@
           const x = sx(m.x), y = sy(m.y);
           const on = isCoupled(state, j.a, j.b);
           const hot = hover && hover.kind === "joint" && hover.j.a === j.a && hover.j.b === j.b;
-          // a coupler is a link across the gap; uncoupled, it's two hooks apart
+          // a coupler is a link across the gap; uncoupled, it's two hooks apart. Amber,
+          // like everything else you can click, with a dark edge so it reads on any car.
           const k = hot ? 1.35 : 1;
           ctx.save();
           ctx.translate(x, y); ctx.rotate(m.ang);
-          const hl = Math.max(7, L * 0.14) * k, hh = Math.max(4, L * 0.07) * k;
-          ctx.fillStyle = hot ? C.amberHi : on ? C.lit : C.bg;
-          ctx.strokeStyle = hot ? C.amberHi : C.lit;
-          ctx.lineWidth = 1.5;
-          if (on) {
-            roundRect(-hl, -hh / 2, hl * 2, hh, hh / 2); ctx.fill();
-          } else {
-            const g = hl * 0.35;
-            roundRect(-hl, -hh / 2, hl - g, hh, hh / 2); ctx.fill(); ctx.stroke();
-            roundRect(g, -hh / 2, hl - g, hh, hh / 2); ctx.fill(); ctx.stroke();
+          const hl = Math.max(7, L * 0.15) * k, hh = Math.max(5, L * 0.09) * k;
+          const col = hot ? C.amberHi : C.amber;
+          const pill = (x0, w) => { roundRect(x0, -hh / 2, w, hh, hh / 2); };
+          const parts = on ? [[-hl, hl * 2]] : [[-hl, hl * 0.65], [hl * 0.35, hl * 0.65]];
+          ctx.lineWidth = 2.5; ctx.strokeStyle = C.bg;
+          for (const [x0, w] of parts) { pill(x0, w); ctx.stroke(); }
+          for (const [x0, w] of parts) {
+            pill(x0, w);
+            if (on) { ctx.fillStyle = col; ctx.fill(); }
+            else { ctx.fillStyle = C.bg; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = col; ctx.stroke(); }
           }
           ctx.restore();
           if (hot) labels.push({ text: on ? "uncouple" : "couple", x, y, dy: -L * 0.42 });

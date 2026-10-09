@@ -100,6 +100,10 @@ export const starsFor = (lv, moves) => {
 // their `from` node to their `to` node, which is left to right on screen):
 // L/M = locomotives, A–H = lettered cars, x = an unlettered car, . = empty.
 // `goals` list cars left to right too, packed against the `end` node.
+// In order of how hard they are to think through (not how big their search is):
+// two tutorials, then parking a car aside (Swap two), the loop trick (Run around),
+// parking at scale, gathering from several sidings, reversing, two goals at
+// once, and finally yards with almost no room to work in.
 export const LEVELS = [
   {
     name: "Delivery",
@@ -118,14 +122,6 @@ export const LEVELS = [
     fewest: 3,
   },
   {
-    name: "Run around",
-    blurb: "Get the locomotive to the other end of its train.",
-    layout: runaround({ head: 5, main: 5, tail: 5 }),
-    start: { head: "L A B C" },
-    goals: [{ track: "head", end: "H", cars: "A B C" }],
-    fewest: 4,
-  },
-  {
     name: "Swap two",
     blurb: "Swap A and B.",
     layout: ladder(4, [3, 3]),
@@ -134,12 +130,28 @@ export const LEVELS = [
     fewest: 8,
   },
   {
+    name: "Run around",
+    blurb: "Get the locomotive to the other end of its train.",
+    layout: runaround({ head: 5, main: 5, tail: 5 }),
+    start: { head: "L A B C" },
+    goals: [{ track: "head", end: "H", cars: "A B C" }],
+    fewest: 4,
+  },
+  {
     name: "Pick out",
     blurb: "Get A B C to their markers.",
     layout: ladder(5, [5, 3]),
     start: { head: "L", s1: "x B x A C" },
     goals: [{ track: "s1", end: "E1", cars: "A B C" }],
     fewest: 10,
+  },
+  {
+    name: "Three sidings",
+    blurb: "Gather A B C D at their markers.",
+    layout: ladder(4, [4, 3, 3]),
+    start: { head: "L", s1: ". . D B", s2: ". . C", s3: ". . A" },
+    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
+    fewest: 13,
   },
   {
     name: "Four in order",
@@ -155,14 +167,6 @@ export const LEVELS = [
     layout: ladder(5, [4, 3]),
     start: { head: "L", s1: ". A B C" },
     goals: [{ track: "s1", end: "E1", cars: "C B A" }],
-    fewest: 13,
-  },
-  {
-    name: "Three sidings",
-    blurb: "Gather A B C D at their markers.",
-    layout: ladder(4, [4, 3, 3]),
-    start: { head: "L", s1: ". . D B", s2: ". . C", s3: ". . A" },
-    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
     fewest: 13,
   },
   {

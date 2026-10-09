@@ -467,7 +467,8 @@
       return len < 1e-4 ? null : { x: vx / len, y: vy / len };
     }
     function canDrive(c, d) { return drive(yard, clone(state), c, d, 0.02).moved > 1e-4; }
-    const jointPoint = (j) => walk(yard, state.at[j.a].track, state.at[j.a].s, j.dir, 0.5, state.sw);
+    // halfway between the two cars' centers along the track
+    const jointPoint = (j) => walk(yard, state.at[j.a].track, state.at[j.a].s, j.dir, j.dist / 2, state.sw);
 
     // ---------- driving ----------
     // The pointer sets where you want the locomotivemotive; it heads there along the
@@ -983,7 +984,9 @@
           const hl = Math.max(7, L * 0.15) * k, hh = Math.max(5, L * 0.09) * k;
           const col = hot ? C.amberHi : C.amber;
           const pill = (x0, w) => { roundRect(x0, -hh / 2, w, hh, hh / 2); };
-          const parts = on ? [[-hl, hl * 2]] : [[-hl, hl * 0.65], [hl * 0.35, hl * 0.65]];
+          // the gap between the car bodies, which a coupled link stretches across
+          const gapPx = (j.dist - 1) * L / 2;
+          const parts = on ? [[-hl - gapPx, (hl + gapPx) * 2]] : [[-hl - gapPx, hl * 0.65], [hl * 0.35 + gapPx, hl * 0.65]];
           ctx.lineWidth = 2.5; ctx.strokeStyle = C.bg;
           for (const [x0, w] of parts) { pill(x0, w); ctx.stroke(); }
           for (const [x0, w] of parts) {

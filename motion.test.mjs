@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ladder, LEVELS } from "./levels.mjs";
 import { loadLevel } from "./setup.mjs";
-import { fromSlots, drive, toggleCoupling, switchLocked, throwSwitch, joints, goalMet, FOUL, BLANK } from "./motion.mjs";
+import { fromSlots, drive, toggleCoupling, switchLocked, throwSwitch, joints, goalMet, FOUL, BLANK, REACH } from "./motion.mjs";
 
 const setup = (start, layout = ladder(3, [3, 3])) => {
   const lv = loadLevel({ layout, start, goals: [] });
@@ -98,6 +98,22 @@ test("done means every goal car is touching its own marker", () => {
   assert.ok(goalMet(lv.yard, lv.cars, lv.goals, state));
   state.at[B].s -= 0.5; state.at[A].s -= 0.5; // a whole car short: not touching
   assert.ok(!goalMet(lv.yard, lv.cars, lv.goals, state));
+});
+
+test("cars a little apart can couple, and then keep that spacing both ways", () => {
+  const { yard, state } = setup({ head: "L" });
+  state.at.push({ track: "head", s: state.at[0].s + 1.25 }); // A, a quarter car clear of the loco
+  assert.ok(0.25 < REACH);
+  const j = joints(yard, state);
+  assert.equal(j.length, 1, "in reach");
+  toggleCoupling(state, 0, 1);
+  drive(yard, state, 0, -1, 0.3);
+  near(state.at[1].s - state.at[0].s, 1.25, "pulled at the same spacing");
+  drive(yard, state, 0, 1, 0.4);
+  near(state.at[1].s - state.at[0].s, 1.25, "pushed at the same spacing");
+  state.at[1].s += 0.3; // out of reach
+  toggleCoupling(state, 0, 1);
+  assert.equal(joints(yard, state).length, 0);
 });
 
 test("every level's start is a legal position and not already solved", () => {

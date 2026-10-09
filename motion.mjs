@@ -11,7 +11,10 @@
 import { nextTrack, walk } from "./yard.mjs";
 
 export const FOUL = 0.85; // how far from the points the two legs are too close for two cars
-export const BLANK = 0.42; // the stretch of a leg at the points that's cut off when the switch is set against it
+export const BLANK = 0.42;
+// how big a gap a coupling can bridge: two cars this close (end to end) can be
+// coupled, and then keep that spacing, like a coupler with some slack in it
+export const REACH = 0.35; // the stretch of a leg at the points that's cut off when the switch is set against it
 const EPS = 1e-6, TOUCH = 1e-4;
 
 const pairKey = (i, j) => (i < j ? `${i},${j}` : `${j},${i}`);
@@ -58,16 +61,20 @@ export function group(yard, state, loco, d, pull = true, fixed = null) {
   const at = state.at;
   const members = [{ c: loco, dir: d }];
   let cur = { track: at[loco].track, s: at[loco].s, dir: d };
+  let last = loco;
   for (;;) {
-    const r = scan(yard, state, cur.track, cur.s, cur.dir, 1 + TOUCH);
+    // ahead: whatever it's touching gets pushed, and whatever's coupled to that
+    const r = scan(yard, state, cur.track, cur.s, cur.dir, 1 + REACH + TOUCH);
     if (!r || members.some((m) => m.c === r.car) || (fixed && fixed.has(r.car))) break;
+    if (r.dist > 1 + TOUCH && !isCoupled(state, last, r.car)) break;
     members.unshift({ c: r.car, dir: r.dir });
+    last = r.car;
     cur = { track: at[r.car].track, s: at[r.car].s, dir: r.dir };
   }
   let prev = loco;
   cur = { track: at[loco].track, s: at[loco].s, dir: -d };
   while (pull) {
-    const r = scan(yard, state, cur.track, cur.s, cur.dir, 1 + TOUCH);
+    const r = scan(yard, state, cur.track, cur.s, cur.dir, 1 + REACH + TOUCH);
     if (!r || !isCoupled(state, prev, r.car) || members.some((m) => m.c === r.car)) break;
     members.push({ c: r.car, dir: -r.dir });
     prev = r.car;
@@ -201,13 +208,14 @@ export function throwSwitch(yard, state, k) {
   return true;
 }
 
-// Every pair of cars touching end to end: [{ a, b, dir }] where dir is the
-// direction from a to b along a's track, and `across` names a switch between them.
+// Every pair of cars close enough to couple (touching, or within REACH of it):
+// [{ a, b, dir, dist }] where dir is the direction from a to b along a's track,
+// dist the distance between their centers, and `across` names a switch between them.
 export function joints(yard, state) {
   const out = [], seen = new Set();
   state.at.forEach((p, a) => {
     for (const d of [1, -1]) {
-      const r = scan(yard, state, p.track, p.s, d, 1 + TOUCH);
+      const r = scan(yard, state, p.track, p.s, d, 1 + REACH + TOUCH);
       if (!r || r.dist < 1 - 1e-3) continue;
       const k = pairKey(a, r.car);
       if (seen.has(k)) continue;
@@ -219,7 +227,7 @@ export function joints(yard, state) {
         const n = d > 0 ? t.to : t.from;
         if (yard.switchIndex[n] != null) across = n;
       }
-      out.push({ a, b: r.car, dir: d, across });
+      out.push({ a, b: r.car, dir: d, dist: r.dist, across });
     }
   });
   return out;

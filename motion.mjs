@@ -10,7 +10,7 @@
 
 import { nextTrack, walk } from "./yard.mjs";
 
-export const FOUL = 0.85; // how far from the points the two legs are too close for two cars
+export const FOUL = 1; // how far from the points the two legs are too close for two cars (one car length, so it matches the slot model in yard.mjs exactly)
 export const BLANK = 0.42; // the stretch of a leg at the points that's cut off when the switch is set against it
 // how big a gap you can couple across: the cars then pull together to the
 // usual coupled spacing (see index.html)
@@ -117,17 +117,17 @@ function barrier(yard, state, front, skip) {
   return { dist: Infinity };
 }
 
-// If the front car is going through a switch from its trunk side, the
-// switch and how far the front car's nose is past the points (negative while
-// it's still approaching).
+// The switches the front car is going through from the trunk side, each with
+// how far its nose is past the points (negative while still approaching). A
+// short track between two switches can have one just behind and one ahead.
 function throughPoints(yard, state, front) {
-  const p = state.at[front.c], t = yard.tracks[p.track];
+  const p = state.at[front.c], t = yard.tracks[p.track], out = [];
   const ahead = front.dir > 0 ? t.to : t.from, behind = front.dir > 0 ? t.from : t.to;
   let k = yard.switchIndex[ahead];
-  if (k != null && yard.switches[k].trunk === p.track) return { k, a: 0.5 - (front.dir > 0 ? t.len - p.s : p.s) };
+  if (k != null && yard.switches[k].trunk === p.track) out.push({ k, a: 0.5 - (front.dir > 0 ? t.len - p.s : p.s) });
   k = yard.switchIndex[behind];
-  if (k != null && yard.switches[k].legs[state.sw[k]] === p.track) return { k, a: (front.dir > 0 ? p.s : t.len - p.s) + 0.5 };
-  return null;
+  if (k != null && yard.switches[k].legs[state.sw[k]] === p.track) out.push({ k, a: (front.dir > 0 ? p.s : t.len - p.s) + 0.5 });
+  return out;
 }
 
 // Drive `loco` up to `amount` car lengths in direction d. Moves the cars in
@@ -162,8 +162,8 @@ function moveChain(yard, state, lead, d, amount, pull, fixed = null) {
     // car parked close to the points on the other leg, and shoves it up that
     // leg until the two are clear of each other (FOUL past the points).
     let side = null;
-    const tp = throughPoints(yard, state, front);
-    if (tp && tp.a < FOUL && tp.a + len > 0) {
+    for (const tp of throughPoints(yard, state, front)) {
+      if (!(tp.a < FOUL && tp.a + len > 0)) continue;
       const S = yard.switches[tp.k], other = S.legs[1 - state.sw[tp.k]], ot = yard.tracks[other];
       const into = ot.from === S.id ? 1 : -1;
       const r = scan(yard, state, other, into > 0 ? 0 : ot.len, into, FOUL + 0.5, skip);

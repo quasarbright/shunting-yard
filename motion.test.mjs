@@ -66,6 +66,15 @@ test("coming through the points from the trunk shoves a car near the points up t
   near(far.state.at[1].s, a1, "a car already clear isn't touched");
 });
 
+test("the shove carries on after the nose reaches a track between two switches", () => {
+  // the locomotive goes through P1 onto the short lead to P2, with D parked beside P1 on s1
+  const { yard, state } = setup({ head: ". . L", s1: "D" }, ladder(3, [4, 3, 3]));
+  state.sw[0] = 1; // P1 toward the lead
+  const d0 = state.at[1].s;
+  drive(yard, state, 0, 1, 1);
+  near(state.at[1].s, d0 + FOUL, "D shoved fully clear, not left half in the way");
+});
+
 test("the shove stops if the car it shoves can't move", () => {
   const { yard, state } = setup({ head: ". . L", s2: "A B C" });
   const r = drive(yard, state, 0, 1, 2);

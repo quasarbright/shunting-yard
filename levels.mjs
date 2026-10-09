@@ -190,9 +190,10 @@ export const LEVELS = [
   {
     name: "Tight squeeze",
     blurb: "Line up A B C D at their markers. There's barely any room.",
-    layout: ladder(3, [4, 2, 2]),
+    layout: ladder(3, [4, 2, 3]),
     start: { head: "L", s1: "x C x A", s2: "D B" },
     goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
-    fewest: 34,
+    fewest: null, // too big to search; stars set by hand
+    stars: [40, 55, 75],
   },
 ];

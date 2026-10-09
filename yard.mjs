@@ -192,6 +192,16 @@ export function driveChain(yard, state, loco, d, occ = occupancy(yard, state.pos
     const t = yard.tracks[yard.slots[cur.slot].track];
     return { blocked: true, chain, stopNode: cur.dir > 0 ? t.to : t.from };
   }
+  // On a leg whose switch is set the other way, the drawn track stops short of
+  // the points, and so does the train: it can't drive into the slot beside them.
+  {
+    const dest = yard.slots[next.slot], t = yard.tracks[dest.track];
+    for (const n of [t.from, t.to]) {
+      const k = yard.switchIndex[n];
+      if (k == null || !yard.switches[k].legs.includes(t.id) || yard.switches[k].legs[state.sw[k]] === t.id) continue;
+      if (endSlot(yard, t.id, n) === next.slot) return { blocked: true, chain, stopNode: n };
+    }
+  }
   const foul = yard.slots[next.slot].fouls.find((f) => occ[f] >= 0);
   if (foul != null) {
     const into = yard.slots[next.slot].track, t = yard.tracks[into];
@@ -211,7 +221,11 @@ export function driveChain(yard, state, loco, d, occ = occupancy(yard, state.pos
       side.push(occ[free.slot]);
       at = free;
     }
-    if (!free) return { blocked: true, chain, stopNode: node, fouled: true };
+    // ...unless that would park the shoved train right beside a car at the next
+    // switch. (The real engine would shove that one too; leaving chained shoves
+    // out keeps this model a little stricter than the game, never looser, so a
+    // solution found here can always be played.)
+    if (!free || yard.slots[free.slot].fouls.some((f) => occ[f] >= 0)) return { blocked: true, chain, stopNode: node, fouled: true };
     return { chain, dest: next.slot, side: { chain: side.reverse(), dest: free.slot } };
   }
   return { chain, dest: next.slot };

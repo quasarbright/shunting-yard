@@ -165,4 +165,30 @@ export const LEVELS = [
     goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
     fewest: 13,
   },
+  {
+    name: "Two trains",
+    blurb: "Sort the cars into two trains at their markers.",
+    layout: ladder(3, [3, 3, 3]),
+    start: { head: "L", s1: "E A", s2: ". B F", s3: ". C D" },
+    goals: [{ track: "s1", end: "E1", cars: "A B C" }, { track: "s2", end: "E2", cars: "D E F" }],
+    fewest: null, // too big to search; stars set by hand
+    stars: [24, 32, 42],
+  },
+  {
+    name: "Swap sidings",
+    blurb: "Swap the two trains.",
+    layout: ladder(4, [3, 3, 2]),
+    start: { head: "L", s1: "A B C", s2: "D E F" },
+    goals: [{ track: "s1", end: "E1", cars: "D E F" }, { track: "s2", end: "E2", cars: "A B C" }],
+    fewest: null, // too big to search; stars set by hand
+    stars: [22, 30, 40],
+  },
+  {
+    name: "Tight squeeze",
+    blurb: "Line up A B C D at their markers. There's barely any room.",
+    layout: ladder(3, [4, 2, 2]),
+    start: { head: "L", s1: "x C x A", s2: "D B" },
+    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
+    fewest: 34,
+  },
 ];

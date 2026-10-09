@@ -834,33 +834,6 @@
       }
     }
 
-    // +1 to put a goal's markers on the track's right-hand side (below, for a
-    // left-to-right track), -1 for the left, whichever is farther from other track
-    const sideCache = new Map();
-    function markerSide(g) {
-      const key = level.name + g.track;
-      if (sideCache.has(key)) return sideCache.get(key);
-      const t = yard.tracks[g.track];
-      const segDist = (px, py, [x0, y0], [x1, y1]) => {
-        const vx = x1 - x0, vy = y1 - y0, u = Math.max(0, Math.min(1, ((px - x0) * vx + (py - y0) * vy) / (vx * vx + vy * vy || 1)));
-        return Math.hypot(px - x0 - u * vx, py - y0 - u * vy);
-      };
-      const clearance = (sign) => {
-        let worst = Infinity;
-        for (let k = 0; k < g.cars.length; k++) {
-          const p = pointOnTrack(t, t.from === g.end ? 0.5 + k : t.len - 0.5 - k);
-          const qx = p.x - Math.sin(p.ang) * sign * 0.7, qy = p.y + Math.cos(p.ang) * sign * 0.7;
-          for (const o of Object.values(yard.tracks)) {
-            if (o.id === g.track) continue;
-            for (let i = 1; i < o.pts.length; i++) worst = Math.min(worst, segDist(qx, qy, o.pts[i - 1], o.pts[i]));
-          }
-        }
-        return worst;
-      };
-      const side = clearance(1) >= clearance(-1) - 1e-6 ? 1 : -1;
-      sideCache.set(key, side);
-      return side;
-    }
 
 
     let lastNow = null;
@@ -959,32 +932,27 @@
         if (n.kind === "buffer") drawBufferStop(n);
       }
 
-      // goal: a marker beside the track for each car, in order from the goal's end,
-      // on whichever side of the track has more room
+      // goal: a bay painted on the track for each car, packed against the goal's
+      // end. It's a little wider than a car, so its edge shows around whatever's
+      // parked in it, and it lights up when the right car is there.
       for (const g of goals) {
-        const side = markerSide(g);
         const t = yard.tracks[g.track];
         goalSpots(yard, g).forEach(({ car: carIdx, s: spot }) => {
-          // packed against the goal's end, where a train shoved up to the buffer ends up
-          const car = cars[carIdx];
+          const car = cars[carIdx], col = carColor(car);
           const sl = pointOnTrack(t, spot);
           const ok = atSpot(state, g.track, carIdx, spot);
           ctx.save();
           ctx.translate(sx(sl.x), sy(sl.y)); ctx.rotate(sl.ang);
-          const w = L * 0.84, off = L * 0.42;
-          ctx.globalAlpha = ok ? 1 : 0.55;
-          ctx.fillStyle = carColor(car);
-          const bh = Math.max(3, L * 0.07);
-          roundRect(-w / 2, side > 0 ? off : -off - bh, w, bh, 2);
-          ctx.fill();
+          const w = L * 0.92, h = L * 0.66;
+          roundRect(-w / 2, -h / 2, w, h, L * 0.1);
+          ctx.globalAlpha = ok ? 0.5 : 0.18; ctx.fillStyle = col; ctx.fill();
+          ctx.globalAlpha = ok ? 1 : 0.7; ctx.lineWidth = Math.max(2, L * 0.04); ctx.strokeStyle = col; ctx.stroke();
           ctx.restore();
-          // the letter sits just past the bar, upright
-          const nx = -Math.sin(sl.ang) * side, ny = Math.cos(sl.ang) * side, dd = (off + L * 0.27) / L;
-          ctx.globalAlpha = ok ? 1 : 0.55;
-          ctx.fillStyle = carColor(car);
-          ctx.font = `600 ${Math.round(L * 0.24)}px "IBM Plex Mono", monospace`;
+          // the letter shows in an empty bay (a parked car covers it)
+          ctx.globalAlpha = 0.9; ctx.fillStyle = col;
+          ctx.font = `600 ${Math.round(L * 0.26)}px "IBM Plex Mono", monospace`;
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          uprightText(car.name, sx(sl.x + nx * dd), sy(sl.y + ny * dd));
+          uprightText(car.name, sx(sl.x), sy(sl.y));
           ctx.globalAlpha = 1;
         });
       }

@@ -76,6 +76,14 @@ test("switches can't be thrown with cars across the points", () => {
   assert.ok(throwSwitch(free.yard, free.state, 0)); // A is on the other leg
 });
 
+test("no level starts with cars clashing beside a switch", () => {
+  for (const lv of LEVELS) {
+    const { yard, state } = loadLevel(lv);
+    const occ = new Set(state.pos);
+    for (const p of state.pos) for (const f of yard.slots[p].fouls) assert.ok(!occ.has(f), `${lv.name}: slots ${p} and ${f}`);
+  }
+});
+
 test("every level's fewest moves is the solver's answer", () => {
   for (const lv of LEVELS) {
     if (lv.fewest == null || (lv.fewest > 12 && !process.env.SLOW)) continue;

@@ -142,6 +142,14 @@ export const LEVELS = [
     fewest: 10,
   },
   {
+    name: "Four in order",
+    blurb: "Line up A B C D at their markers.",
+    layout: ladder(5, [5, 3, 3]),
+    start: { head: "L", s1: "C . A", s2: "B . D" },
+    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
+    fewest: 12,
+  },
+  {
     name: "Reverse three",
     blurb: "Turn the train around.",
     layout: ladder(5, [4, 3]),
@@ -156,13 +164,5 @@ export const LEVELS = [
     start: { head: "L", s1: ". . D B", s2: ". . C", s3: ". . A" },
     goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
     fewest: 13,
-  },
-  {
-    name: "Four in order",
-    blurb: "Line up A B C D at their markers.",
-    layout: ladder(5, [5, 3, 3]),
-    start: { head: "L", s1: "C . A", s2: "B . D" },
-    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
-    fewest: 12,
   },
 ];

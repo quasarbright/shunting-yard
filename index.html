@@ -313,9 +313,11 @@
     // puzzle. Finishing a puzzle opens the next; the puzzle list opens once the
     // two tutorial puzzles are done.
     const earned = {};
-    const done = (i) => earned[LEVELS[i]?.name] != null;
-    const playable = (i) => i === 0 || done(i - 1);
-    const listOpen = () => done(1);
+    // While testing, everything's open; set to false for the real first playthrough.
+    const ALL_OPEN = true;
+    const done = (i) => ALL_OPEN || earned[LEVELS[i]?.name] != null;
+    const playable = (i) => ALL_OPEN || i === 0 || done(i - 1);
+    const listOpen = () => ALL_OPEN || done(1);
 
     function freshState() { const lv = loadLevel(level); return fromSlots(lv.yard, lv.state); }
 
@@ -494,14 +496,21 @@
     }
 
     function stepDrive(dt) {
-      const loco = drag.loco, here = centerOf(loco), tg = drag.target;
-      // which way along the track gets closer to the target, and how far
-      let best = null;
+      const loco = drag.loco, tg = drag.target;
+      // Look along the track both ways, as the switches are set, for the point
+      // nearest the pointer, and head there: proj is how far along the track it is.
+      const here = state.at[loco], p0 = pointOnTrack(yard.tracks[here.track], here.s);
+      let best = null, bestD = Math.hypot(tg.x - p0.x, tg.y - p0.y);
       for (const d of [1, -1]) {
-        const h = heading(loco, d);
-        if (!h) continue;
-        const proj = (tg.x - here.x) * h.x + (tg.y - here.y) * h.y;
-        if (!best || proj > best.proj) best = { d, proj };
+        let cur = { track: here.track, s: here.s, dir: d }, t = 0;
+        for (let i = 0; i < 1000; i++) { // up to 40 car lengths each way
+          const nx = walk(yard, cur.track, cur.s, cur.dir, 0.04, state.sw);
+          const stepped = nx.track !== cur.track || Math.abs(nx.s - cur.s) > 1e-6;
+          if (!stepped) break; // the end of the line this way
+          t += 0.04; cur = nx;
+          const dd = Math.hypot(tg.x - nx.x, tg.y - nx.y);
+          if (dd < bestD - 1e-6) { bestD = dd; best = { d, proj: t }; }
+        }
       }
       drag.still = true;
       // a small dead zone before turning back, so it settles instead of hunting back and forth
@@ -610,11 +619,15 @@
       }
       return -1;
     }
+    // The tap zone for a coupler is an oval: generous across the track, tight
+    // along it, so it doesn't eat into where you'd grab the locomotive.
     function jointAt(px, py) {
-      let best = null, bd = Math.max(14, L * 0.22);
+      const along = Math.max(12, L * 0.2), across = Math.max(26, L * 0.55);
+      let best = null, bd = 1;
       for (const j of joints(yard, state)) {
         const m = jointPoint(j);
-        const d = Math.hypot(sx(m.x) - px, sy(m.y) - py);
+        const dx = px - sx(m.x), dy = py - sy(m.y), c = Math.cos(m.ang), s = Math.sin(m.ang);
+        const d = Math.hypot((dx * c + dy * s) / along, (-dx * s + dy * c) / across);
         if (d < bd) { bd = d; best = j; }
       }
       return best;
@@ -657,7 +670,7 @@
       hover = h;
       if (!h) return;
       if (h.kind === "switch") {
-        if (switchLocked(yard, state, h.k)) { flashSwitch = { k: h.k, t: performance.now(), why: "car on the points" }; return; }
+        if (switchLocked(yard, state, h.k)) { flashSwitch = { k: h.k, t: performance.now(), why: "car on switch" }; return; }
         pushHistory();
         throwSwitch(yard, state, h.k);
         moves++;
@@ -938,7 +951,7 @@
           ctx.stroke();
           ctx.globalAlpha = 1;
         });
-        if (hot && locked) { const n = yard.nodes[S.id]; labels.push({ text: "car on the points", x: sx(n.x), y: sy(n.y), dy: L * 0.6 }); }
+        if (hot && locked) { const n = yard.nodes[S.id]; labels.push({ text: "car on switch", x: sx(n.x), y: sy(n.y), dy: L * 0.6 }); }
       }
       // buffer stops: a crossbeam where the rails end, two buffers facing the track,
       // and a braced frame behind, standing up off the panel like the cars do

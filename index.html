@@ -281,7 +281,7 @@
     import { loadLevel } from "./setup.mjs";
     import { walk, nextTrack, pointOnTrack } from "./yard.mjs";
     import {
-      fromSlots, clone, drive, coast, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, BLANK, goalSpots, atSpot,
+      fromSlots, clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, BLANK, REACH, goalSpots, atSpot,
     } from "./motion.mjs";
 
     const C = {
@@ -324,7 +324,7 @@
       level = LEVELS[levelIndex];
       ({ yard, cars, goals } = loadLevel(level));
       state = freshState();
-      moves = 0; history = []; solved = false; drag = null; hover = null; rolling = new Map();
+      moves = 0; history = []; solved = false; drag = null; hover = null; rolling = new Map(); pull = null;
       swing = state.sw.slice(); litAmt = new Map();
       playing = true;
       $("menu").hidden = true; $("bar").hidden = false; $("controls").hidden = false; $("win").hidden = true;
@@ -357,7 +357,7 @@
     function pushHistory() { history.push({ state: clone(state), moves }); }
     function undo() {
       if ((drag && drag.held) || !history.length) return;
-      drag = null; rolling = new Map();
+      drag = null; rolling = new Map(); pull = null;
       ({ state, moves } = history.pop());
       solved = false;
       $("win").hidden = true;
@@ -550,6 +550,51 @@
       }
     }
 
+    // Coupling across a small gap: the couplers draw the two cars together to
+    // the usual coupled spacing. The side with a locomotive holds still (its
+    // brakes are on); otherwise the lighter side moves. If that side can't
+    // move, the other one does.
+    const PULL_SPEED = 2; // car lengths per second
+    let pull = null; // { a, b, mover, dir, remaining, swapped }
+
+    function dirToward(from, to) {
+      const p = state.at[from];
+      for (const d of [1, -1]) {
+        const r = scan(yard, state, p.track, p.s, d, 1 + REACH + 0.05);
+        if (r && r.car === to) return d;
+      }
+      return 0;
+    }
+
+    function startPull(a, b, dist) {
+      const gap = dist - 1;
+      if (gap <= 1e-3) return;
+      const A = consistOf(a), B = consistOf(b);
+      const hasLoco = (set) => [...set].some((c) => cars[c].loco);
+      const moveA = hasLoco(B) && !hasLoco(A) ? true
+        : hasLoco(A) && !hasLoco(B) ? false
+        : A.size < B.size;
+      const mover = moveA ? a : b, other = moveA ? b : a;
+      pull = { a, b, mover, dir: dirToward(mover, other), remaining: gap, swapped: false };
+    }
+
+    function stepPull(dt) {
+      if (!pull || dt <= 0) return;
+      const { a, b } = pull;
+      // with this one coupling set aside, roll the mover in toward the other car
+      toggleCoupling(state, a, b);
+      const locos = new Set(locoIds().filter((l) => !consistOf(pull.mover).has(l)));
+      const r = coast(yard, state, pull.mover, pull.dir, Math.min(pull.remaining, PULL_SPEED * dt), locos);
+      toggleCoupling(state, a, b);
+      pull.remaining -= r.moved;
+      if (pull.remaining <= 1e-4) { pull = null; return; }
+      if (r.moved <= 1e-6) {
+        if (pull.swapped) { pull = null; return; } // neither side can move: leave the slack
+        const stuck = pull.mover, next = stuck === a ? b : a;
+        pull = { ...pull, mover: next, dir: dirToward(next, stuck), swapped: true };
+      }
+    }
+
     function blockedBy(stop) {
       if (!stop || stop.why !== "foul") return;
       const k = yard.switchIndex[stop.node];
@@ -619,7 +664,9 @@
         updateCount();
       } else if (h.kind === "joint") {
         pushHistory();
+        const coupling = !isCoupled(state, h.j.a, h.j.b);
         toggleCoupling(state, h.j.a, h.j.b);
+        if (coupling) startPull(h.j.a, h.j.b, h.j.dist);
         moves++;
         updateCount();
       } else if (h.kind === "loco") {
@@ -636,7 +683,7 @@
     $("undo").onclick = undo;
     $("reset").onclick = () => {
       if (!history.length || (drag && drag.held)) return;
-      drag = null; rolling = new Map();
+      drag = null; rolling = new Map(); pull = null;
       pushHistory();
       state = freshState();
       moves = 0;
@@ -809,10 +856,11 @@
       lastNow = now;
       if (playing && !solved) {
         stepRolling(dt);
+        stepPull(dt);
         if (drag) stepDrive(dt);
       }
       // done as soon as the goal is met and everything has stopped, held or not
-      if (playing && !solved && !rolling.size && (!drag || drag.still) && goalMet(yard, cars, goals, state)) win();
+      if (playing && !solved && !rolling.size && !pull && (!drag || drag.still) && goalMet(yard, cars, goals, state)) win();
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);

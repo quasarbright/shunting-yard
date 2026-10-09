@@ -11,10 +11,10 @@
 import { nextTrack, walk } from "./yard.mjs";
 
 export const FOUL = 0.85; // how far from the points the two legs are too close for two cars
-export const BLANK = 0.42;
-// how big a gap a coupling can bridge: two cars this close (end to end) can be
-// coupled, and then keep that spacing, like a coupler with some slack in it
-export const REACH = 0.35; // the stretch of a leg at the points that's cut off when the switch is set against it
+export const BLANK = 0.42; // the stretch of a leg at the points that's cut off when the switch is set against it
+// how big a gap you can couple across: the cars then pull together to the
+// usual coupled spacing (see index.html)
+export const REACH = 0.12;
 const EPS = 1e-6, TOUCH = 1e-4;
 
 const pairKey = (i, j) => (i < j ? `${i},${j}` : `${j},${i}`);

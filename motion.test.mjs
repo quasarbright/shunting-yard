@@ -100,20 +100,12 @@ test("done means every goal car is touching its own marker", () => {
   assert.ok(!goalMet(lv.yard, lv.cars, lv.goals, state));
 });
 
-test("cars a little apart can couple, and then keep that spacing both ways", () => {
+test("cars a little apart are in reach to couple; farther apart they aren't", () => {
   const { yard, state } = setup({ head: "L" });
-  state.at.push({ track: "head", s: state.at[0].s + 1.25 }); // A, a quarter car clear of the loco
-  assert.ok(0.25 < REACH);
-  const j = joints(yard, state);
-  assert.equal(j.length, 1, "in reach");
-  toggleCoupling(state, 0, 1);
-  drive(yard, state, 0, -1, 0.3);
-  near(state.at[1].s - state.at[0].s, 1.25, "pulled at the same spacing");
-  drive(yard, state, 0, 1, 0.4);
-  near(state.at[1].s - state.at[0].s, 1.25, "pushed at the same spacing");
-  state.at[1].s += 0.3; // out of reach
-  toggleCoupling(state, 0, 1);
-  assert.equal(joints(yard, state).length, 0);
+  state.at.push({ track: "head", s: state.at[0].s + 1 + REACH * 0.8 });
+  assert.equal(joints(yard, state).length, 1, "in reach");
+  state.at[1].s += REACH * 0.5;
+  assert.equal(joints(yard, state).length, 0, "out of reach");
 });
 
 test("every level's start is a legal position and not already solved", () => {

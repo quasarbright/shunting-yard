@@ -282,13 +282,14 @@
     import { walk, nextTrack, pointOnTrack, setDeckAngle } from "./yard.mjs";
     import {
       fromSlots, clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, BLANK, REACH, goalSpots, atSpot,
-      turnTurntable, turntableLocked, plateCovered,
+      turnTurntable, turntableLocked, plateCovered, BODY,
     } from "./motion.mjs";
 
     const C = {
       bg: "#121619", dim: "#323b42", lit: "#e9e4d6", amber: "#f2a93b", amberHi: "#ffc061",
       muted: "#87929a", faint: "#56616a", filler: "#5e6970", danger: "#e0556b",
       wire: "#6fd3ff", // pressure plates and their wiring
+      steel: "#a9b4ba", // the section of track at a switch's points
     };
     const CAR_COLORS = {
       A: "#c8553d", B: "#4b87c6", C: "#5aa66c", D: "#a070c8",
@@ -656,11 +657,28 @@
       }
       return -1;
     }
+    // A car blocks a switch when its body is over the points. Cars are drawn
+    // BODY long but are a whole car length coupler to coupler, so the stretch of
+    // track where a drawn car blocks is JOINT either side of the points.
+    const JOINT = 0.5 - BODY / 2;
+
+    // A manual turntable's lever stands outside the pit, in the widest gap between its exits.
+    function tableLeverPos(k) {
+      const T = yard.turntables[k];
+      const angs = T.exits.map((e) => ((e.angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)).sort((a, b) => a - b);
+      let best = 0, gap = -1;
+      angs.forEach((a, i) => {
+        const b = i + 1 < angs.length ? angs[i + 1] : angs[0] + 2 * Math.PI;
+        if (b - a > gap) { gap = b - a; best = a + (b - a) / 2; }
+      });
+      const R = T.r + 0.95;
+      return { x: T.center[0] + R * Math.cos(best), y: T.center[1] + R * Math.sin(best) };
+    }
     function turntableAt(px, py) {
       for (let k = 0; k < yard.turntables.length; k++) {
-        const T = yard.turntables[k];
-        if (!T.manual) continue;
-        if (Math.hypot(sx(T.center[0]) - px, sy(T.center[1]) - py) < (T.r + 0.2) * L) return k;
+        if (!yard.turntables[k].manual) continue;
+        const p = tableLeverPos(k);
+        if (Math.hypot(sx(p.x) - px, sy(p.y) - py) < Math.max(18, L * 0.34)) return k;
       }
       return -1;
     }
@@ -851,6 +869,20 @@
       ctx.lineWidth = 2; ctx.strokeStyle = C.bg; ctx.stroke();
     }
 
+    // A turntable's lever: a round steel base with a crank that points the way
+    // the deck does (so it turns as the table turns), and an amber knob.
+    function drawTableLever(k, { hot, locked, flash }) {
+      const p = tableLeverPos(k), a = tableAngle[k] ?? 0;
+      block(p.x, p.y, { x: 1, y: 0 }, 0.3, 0.3, C.muted, depth() * 0.6, 0.15);
+      const x0 = sx(p.x), y0 = sy(p.y), x1 = sx(p.x + Math.cos(a) * 0.3), y1 = sy(p.y + Math.sin(a) * 0.3);
+      ctx.lineCap = "round";
+      ctx.lineWidth = Math.max(2.5, L * 0.06); ctx.strokeStyle = shade(C.muted, 0.2);
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x1, y1, Math.max(4, L * (hot ? 0.1 : 0.085)), 0, Math.PI * 2);
+      ctx.fillStyle = flash ? C.danger : locked ? C.faint : hot ? C.amberHi : C.amber; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = C.bg; ctx.stroke();
+    }
+
     function drawBufferStop(n) {
       const d = legDir(n.tracks[0], n.id), p = { x: -d.y, y: d.x }; // d points into the track
       const at = (back, side) => [n.x - d.x * back + p.x * side, n.y - d.y * back + p.y * side];
@@ -936,23 +968,24 @@
       for (const id of Object.keys(yard.tracks)) litAmt.set(id, ease(litAmt.get(id) ?? (lit.has(id) ? 1 : 0), lit.has(id) ? 1 : 0, 1 / 0.25));
 
       // track: dim everywhere, lamp-lit along the route the locomotives can reach.
-      // At a switch, the first stretch of the leg it isn't set to is missing.
-      const unset = (t, nodeId) => {
+      // Both legs of a switch stop short of the points; the switch's blade
+      // (drawn below) swings across to join the trunk to one of them.
+      const isLegAt = (t, nodeId) => {
         const k = yard.switchIndex[nodeId];
-        if (k == null) return 0;
-        const leg = yard.switches[k].legs.indexOf(t.id);
-        return leg < 0 ? 0 : leg === 0 ? swing[k] : 1 - swing[k];
+        return k != null && yard.switches[k].legs.includes(t.id);
       };
       function strokeTrack(t, width, color, alpha) {
         if (alpha <= 0.002) return;
-        const cutA = unset(t, t.from), cutB = unset(t, t.to);
-        const a0 = cutA ? BLANK : 0, a1 = cutB ? t.len - BLANK : t.len;
+        const a0 = isLegAt(t, t.from) ? BLANK : 0, a1 = isLegAt(t, t.to) ? t.len - BLANK : t.len;
         ctx.lineWidth = width; ctx.strokeStyle = color;
         ctx.globalAlpha = alpha; trackPath(t, a0, a1); ctx.stroke();
-        if (a0 > 0) { ctx.globalAlpha = alpha * (1 - cutA); trackPath(t, 0, a0); ctx.stroke(); }
-        if (a1 < t.len) { ctx.globalAlpha = alpha * (1 - cutB); trackPath(t, a1, t.len); ctx.stroke(); }
         ctx.globalAlpha = 1;
       }
+      // where a leg starts after the gap at the points
+      const legStart = (trackId, nodeId) => {
+        const t = yard.tracks[trackId];
+        return pointOnTrack(t, t.from === nodeId ? BLANK : t.len - BLANK);
+      };
       // turntable decks swing round to their stop (always the same way round)
       yard.turntables.forEach((T, k) => {
         const to = T.stops[state.tt[k]].angle, cur = tableAngle[k] ?? to;
@@ -960,7 +993,7 @@
         tableAngle[k] = ahead < 1e-4 ? to : cur + Math.min(ahead, dt * 4.5);
         setDeckAngle(yard, k, tableAngle[k]);
       });
-      // turntable pits, under everything; a manual one has an amber rim (click to turn)
+      // turntable pits, under everything; a manual one is turned by its lever
       yard.turntables.forEach((T, k) => {
         const x = sx(T.center[0]), y = sy(T.center[1]), r = (T.r + 0.12) * L;
         const hot = hover && hover.kind === "turntable" && hover.k === k && !drag;
@@ -969,54 +1002,82 @@
         ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = "#0b0e10"; ctx.fill();
         ctx.lineWidth = Math.max(3, L * (hot ? 0.09 : 0.07));
-        ctx.strokeStyle = flash || (hitOn && !hit.ok) ? C.danger : T.manual ? (hot ? C.amberHi : C.amber) : C.dim;
-        ctx.globalAlpha = T.manual && !hot ? 0.75 : 1; ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = flash || (hitOn && !hit.ok) ? C.danger : hot ? C.amber : C.dim;
+        ctx.stroke();
         if (hot && turntableLocked(yard, state, k)) labels.push({ text: "car hanging off", x, y, dy: r + 14 });
       });
-      // wires from each plate to what it drives, under the track
+      // Wires, under the track: every control is wired to what it works, plates
+      // and levers alike. A long wire bows out to one side so it never hides along
+      // a track; a short one (a lever beside its points) runs straight.
+      function drawWire(p0, q, lit) {
+        const mx = (p0.x + q.x) / 2, my = (p0.y + q.y) / 2, dx = q.x - p0.x, dy = q.y - p0.y;
+        const len = Math.hypot(dx, dy) || 1, bow = len < 2 ? 0 : Math.max(0.9, len * 0.25);
+        const cx2 = mx + (-dy / len) * bow, cy2 = my + (dx / len) * bow;
+        ctx.setLineDash([L * 0.12, L * 0.1]);
+        ctx.lineWidth = Math.max(1.5, L * (lit ? 0.05 : 0.035)); ctx.strokeStyle = C.wire;
+        ctx.globalAlpha = lit ? 0.95 : 0.45;
+        ctx.beginPath(); ctx.moveTo(sx(p0.x), sy(p0.y)); ctx.quadraticCurveTo(sx(cx2), sy(cy2), sx(q.x), sy(q.y)); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+      const tableCenter = (k) => ({ x: yard.turntables[k].center[0], y: yard.turntables[k].center[1] });
       yard.plates.forEach((pl, i) => {
         const p0 = pointOnTrack(yard.tracks[pl.track], pl.s);
         const lit = now - (plateFlash.get(i) ?? -1e9) < 700;
-        for (const w of pl.wires) {
-          const q = w.switch != null ? yard.nodes[yard.switches[w.switch].id] : { x: yard.turntables[w.turntable].center[0], y: yard.turntables[w.turntable].center[1] };
-          // bowed out to one side, so a wire never hides along a track
-          const mx = (p0.x + q.x) / 2, my = (p0.y + q.y) / 2, dx = q.x - p0.x, dy = q.y - p0.y;
-          const len = Math.hypot(dx, dy) || 1, bow = Math.max(0.9, len * 0.25);
-          const cx2 = mx + (-dy / len) * bow, cy2 = my + (dx / len) * bow;
-          ctx.setLineDash([L * 0.12, L * 0.1]);
-          ctx.lineWidth = Math.max(1.5, L * (lit ? 0.05 : 0.035)); ctx.strokeStyle = C.wire;
-          ctx.globalAlpha = lit ? 0.95 : 0.45;
-          ctx.beginPath(); ctx.moveTo(sx(p0.x), sy(p0.y)); ctx.quadraticCurveTo(sx(cx2), sy(cy2), sx(q.x), sy(q.y)); ctx.stroke();
-          ctx.setLineDash([]); ctx.globalAlpha = 1;
-        }
+        for (const w of pl.wires) drawWire(p0, w.switch != null ? yard.nodes[yard.switches[w.switch].id] : tableCenter(w.turntable), lit);
+      });
+      yard.switches.forEach((S, k) => {
+        if (S.lever) drawWire(leverPos(k), yard.nodes[S.id], hover && hover.kind === "switch" && hover.k === k);
+      });
+      yard.turntables.forEach((T, k) => {
+        if (T.manual) drawWire(tableLeverPos(k), tableCenter(k), hover && hover.kind === "turntable" && hover.k === k);
       });
       for (const t of Object.values(yard.tracks)) strokeTrack(t, tw, C.dim, 1);
       for (const t of Object.values(yard.tracks)) strokeTrack(t, tw * 0.55, C.lit, litAmt.get(t.id));
-      // switches: a lever beside the manual ones; the ones a plate drives get a
-      // wire terminal at the points instead
-      const LEG_START = 0.85;
+      // Switches. The blade swings between the two legs as the switch throws. The
+      // steel section at the points is exactly where a car blocks the switch:
+      // a car stops it being thrown when its body is over that section.
       yard.switches.forEach((S, k) => {
-        const n = yard.nodes[S.id];
+        const n = yard.nodes[S.id], x = sx(n.x), y = sy(n.y);
         const locked = switchLocked(yard, state, k);
-        const hit = wireHit.get(`switch:${k}`), hitOn = hit && now - hit.t < 700;
-        if (!S.lever) {
-          ctx.beginPath(); ctx.arc(sx(n.x), sy(n.y), Math.max(4, L * 0.1), 0, Math.PI * 2);
-          ctx.fillStyle = C.bg; ctx.fill();
-          ctx.lineWidth = Math.max(2, L * 0.04); ctx.strokeStyle = hitOn && !hit.ok ? C.danger : C.wire;
-          ctx.globalAlpha = hitOn ? 1 : 0.8; ctx.stroke(); ctx.globalAlpha = 1;
-          return;
-        }
         const hot = hover && hover.kind === "switch" && hover.k === k && !drag;
         const flash = flashSwitch && flashSwitch.k === k && now - flashSwitch.t < 900;
-        // on hover, the leg a pull of the lever would set, faintly
-        if (hot && !locked) {
-          const leg = yard.tracks[S.legs[state.sw[k] ? 0 : 1]];
-          ctx.lineWidth = tw * 0.55; ctx.strokeStyle = C.amber; ctx.globalAlpha = 0.45;
-          if (leg.from === S.id) trackPath(leg, 0, LEG_START); else trackPath(leg, leg.len - LEG_START, leg.len);
-          ctx.stroke(); ctx.globalAlpha = 1;
+        const hit = wireHit.get(`switch:${k}`), hitOn = hit && now - hit.t < 700;
+        // the blade: from the points toward where each leg starts, by how far it's swung
+        const [q0, q1] = S.legs.map((l) => legStart(l, S.id));
+        const a0 = Math.atan2(q0.y - n.y, q0.x - n.x), a1 = Math.atan2(q1.y - n.y, q1.x - n.x);
+        const da = Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)), ang = a0 + da * swing[k];
+        const r0 = Math.hypot(q0.x - n.x, q0.y - n.y), r1 = Math.hypot(q1.x - n.x, q1.y - n.y), r = r0 + (r1 - r0) * swing[k];
+        const bx = sx(n.x + Math.cos(ang) * r), by = sy(n.y + Math.sin(ang) * r);
+        ctx.lineCap = "round";
+        ctx.lineWidth = tw; ctx.strokeStyle = C.dim;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(bx, by); ctx.stroke();
+        const bladeLit = litAmt.get(S.trunk) ?? 0;
+        if (bladeLit > 0.002) {
+          ctx.lineWidth = tw * 0.55; ctx.strokeStyle = C.lit; ctx.globalAlpha = bladeLit;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(bx, by); ctx.stroke(); ctx.globalAlpha = 1;
         }
-        drawLever(k, swing[k], { hot, locked, flash });
+        // on hover over its lever, the leg a pull would set, faintly
+        if (hot && !locked) {
+          const q = state.sw[k] ? q0 : q1;
+          ctx.setLineDash([3, 3]); ctx.lineWidth = 2; ctx.strokeStyle = C.amberHi;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(sx(q.x), sy(q.y)); ctx.stroke(); ctx.setLineDash([]);
+        }
+        // the steel section at the points, along the trunk
+        const dt = legDir(S.trunk, S.id), half = JOINT * L;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(Math.atan2(dt.y, dt.x));
+        roundRect(-half, -tw * 1.1, half * 2, tw * 2.2, 2);
+        ctx.fillStyle = flash || (hitOn && !hit.ok) ? C.danger : locked ? "#b5838b" : hot ? C.amberHi : C.steel;
+        ctx.fill();
+        ctx.restore();
+        if (S.lever) drawLever(k, swing[k], { hot, locked, flash });
         if (hot && locked) { const p = leverPos(k); labels.push({ text: "car on switch", x: sx(p.x), y: sy(p.y), dy: L * 0.5 }); }
+      });
+      // turntable levers
+      yard.turntables.forEach((T, k) => {
+        if (!T.manual) return;
+        const hot = hover && hover.kind === "turntable" && hover.k === k && !drag;
+        const flash = flashTable && flashTable.k === k && now - flashTable.t < 900;
+        drawTableLever(k, { hot, locked: turntableLocked(yard, state, k), flash });
       });
       // plates, on the track
       yard.plates.forEach((pl, i) => {
@@ -1171,7 +1232,8 @@
         // on the turntable, coupler still facing away from A
         const T = yard.turntables[0];
         if (state.at[loco].track === T.deck && !turntableLocked(yard, state, 0) && !joints(yard, state).length) {
-          return at(T.center[0], T.center[1] - T.r, "Click the turntable to turn it round");
+          const p = tableLeverPos(0);
+          return at(p.x, p.y, "Pull the lever to turn the turntable round");
         }
       }
       return null;

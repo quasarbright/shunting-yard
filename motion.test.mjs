@@ -2,12 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ladder, LEVELS } from "./levels.mjs";
 import { loadLevel } from "./setup.mjs";
-import { fromSlots, drive, toggleCoupling, switchLocked, throwSwitch, joints, goalMet, FOUL, BLANK, REACH } from "./motion.mjs";
+import { fromSlots, drive, toggleCoupling, switchLocked, throwSwitch, joints, goalMet, turnTurntable, turntableLocked, FOUL, BLANK, REACH } from "./motion.mjs";
 
 const setup = (start, layout = ladder(3, [3, 3])) => {
   const lv = loadLevel({ layout, start, goals: [] });
   return { yard: lv.yard, state: fromSlots(lv.yard, lv.state) };
 };
+const pairs = (yard, state) => joints(yard, state).map((j) => [j.a, j.b].sort().join("-")).sort();
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} vs ${b}`);
 
 test("the loco stops exactly where it's driven to", () => {
@@ -122,4 +123,83 @@ test("every level's start is a legal position and not already solved", () => {
     const { yard, cars, goals, state } = loadLevel(lv);
     assert.ok(!goalMet(yard, cars, goals, fromSlots(yard, state)), lv.name);
   }
+});
+
+test("a locomotive couples only on its coupler end, and pushes with both", () => {
+  // cars: 0 is the gray car, 1 the locomotive, 2 is A
+  const front = setup({ head: "x L> A" }); // coupler toward A
+  assert.deepEqual(pairs(front.yard, front.state), ["1-2"], "only the coupler side can couple");
+  const back = setup({ head: "x <L A" }); // coupler toward the gray car
+  assert.deepEqual(pairs(back.yard, back.state), ["0-1"]);
+  // pushing A with the end that has no coupler still works
+  const a0 = back.state.at[2].s;
+  drive(back.yard, back.state, 1, 1, 0.5);
+  near(back.state.at[2].s, a0 + 0.5, "A pushed by the end with no coupler");
+});
+
+test("a locomotive keeps its coupler on the same end as it rolls onto a track running the other way", () => {
+  // two tracks joined head to head: the second one runs right to left
+  const layout = { nodes: { A: [0, 0], J: [3, 0], B: [6, 0] }, tracks: [{ id: "one", from: "A", to: "J" }, { id: "two", from: "B", to: "J" }], switches: {} };
+  const { yard, state } = setup({ one: "L> . ." }, layout);
+  drive(yard, state, 0, 1, 3);
+  assert.equal(state.at[0].track, "two");
+  assert.equal(state.face[0], -1, "still facing the way it's going, which is -1 on track two");
+});
+
+const tableYard = {
+  nodes: { A: [-4.15, 0], B: [4.15, 0], C: [0, -5.15] },
+  tracks: [{ id: "west", from: "A", to: "T.0" }, { id: "east", from: "T.1", to: "B" }, { id: "north", from: "T.2", to: "C" }],
+  switches: {},
+  turntables: { T: { center: [0, 0], length: 2, exits: [180, 0, 270] } },
+};
+
+test("a turntable carries a locomotive round, and turns it", () => {
+  const { yard, state } = setup({ west: ". . L>" }, tableYard);
+  const T = yard.turntables[0];
+  state.tt[0] = T.stops.findIndex((s) => s.b === 0); // the deck's b end at the west exit
+  near(drive(yard, state, 0, 1, 2).moved, 2, "on to the deck");
+  assert.equal(state.at[0].track, "T.deck");
+  // turn until the deck lines up with the north exit
+  let guard = 0;
+  while (T.stops[state.tt[0]].a !== 2 && T.stops[state.tt[0]].b !== 2 && guard++ < 8) assert.ok(turnTurntable(yard, state, 0));
+  const d = T.stops[state.tt[0]].a === 2 ? -1 : 1; // toward whichever end of the deck faces north
+  const r = drive(yard, state, 0, d, 2);
+  near(r.moved, 2, "off the deck onto the north exit");
+  assert.equal(state.at[0].track, "north");
+});
+
+test("a turntable won't turn with a car hanging off it", () => {
+  const { yard, state } = setup({ west: ". . L>" }, tableYard);
+  state.tt[0] = yard.turntables[0].stops.findIndex((s) => s.b === 0);
+  drive(yard, state, 0, 1, 0.6); // half on the deck
+  assert.ok(turntableLocked(yard, state, 0));
+  drive(yard, state, 0, 1, 1.4); // all the way on
+  assert.ok(!turntableLocked(yard, state, 0));
+});
+
+const plateYard = (wires) => {
+  const lay = ladder(4, [3, 3]);
+  return { ...lay, plates: [{ track: "head", slot: 2, wires }] };
+};
+
+test("rolling onto a plate throws the switches wired to it, once per train", () => {
+  const { yard, state } = setup({ head: "L> A . ." }, plateYard(["P1"]));
+  toggleCoupling(state, 0, 1);
+  assert.equal(state.sw[0], 0);
+  // the coupled pair rolls over the plate: one train, one throw
+  const r = drive(yard, state, 0, 1, 2);
+  assert.equal(r.events.length, 1);
+  assert.equal(state.sw[0], 1);
+  assert.ok(!yard.switches[0].lever, "a switch a plate drives has no lever");
+});
+
+test("a plate can't throw a switch with a car on its points; the other one still goes", () => {
+  const lay = ladder(4, [3, 3, 3]);
+  const { yard, state } = setup({ head: "L> . . .", l1: ". A" }, { ...lay, plates: [{ track: "head", slot: 1, wires: ["P1", "P2"] }] });
+  // put A across P2's points (it starts at the far end of the lead)
+  state.at[1].s += 0.3;
+  assert.ok(switchLocked(yard, state, 1));
+  drive(yard, state, 0, 1, 1.2);
+  assert.equal(state.sw[0], 1, "P1 thrown");
+  assert.equal(state.sw[1], 0, "P2 held by the car on it");
 });

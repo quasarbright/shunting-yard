@@ -6,14 +6,14 @@
 // cars long (see yard.mjs), so each bend's straight is solved to make that so.
 
 const R = 0.6, TURN = Math.PI / 4, ARC_STEPS = 12;
-const SPARE = 0.3;  // room left over at each buffer stop
+export const SPARE = 0.3;  // room left over at each buffer stop
 
 // One arc, sampled as a polyline: its length and the points after the first.
 const arcChord = 2 * ARC_STEPS * R * Math.sin(TURN / (2 * ARC_STEPS)); // polyline length of one arc
 
 // An S-bend starting at (x, y) heading along xdir (±1), drifting toward ydir
 // (±1), `len` long. Returns its points (start included) and where it ends.
-function sBend(x, y, xdir, ydir, len) {
+export function sBend(x, y, xdir, ydir, len) {
   const l = len - 2 * arcChord; // the straight between the arcs
   if (l < 0) throw new Error("bend too short");
   const pts = [];
@@ -82,6 +82,32 @@ export function runaround({ head, main, tail }) {
   return { nodes, tracks, switches };
 }
 
+// A turntable between two straight tracks: west (2 cars) and east (3 cars),
+// with exits only east and west, so all it can do is turn round.
+export function turnaround() {
+  const west = 2 + SPARE, east = 3 + SPARE, cx = west + 0.5;
+  return {
+    nodes: { W: [0, 0], E: [cx + 0.5 + east, 0] },
+    tracks: [{ id: "west", from: "W", to: "T.0" }, { id: "east", from: "T.1", to: "E" }],
+    switches: {},
+    turntables: { T: { center: [cx, 0], length: 1, exits: [180, 0] } },
+  };
+}
+
+// A turntable `len` cars long with a dead-end track (`arm` cars) at each exit
+// angle (degrees; 0 is east, 90 south on screen). Exit i is track `x${i}`,
+// ending at buffer `B${i}`.
+export function roundTable(exits, len, arm = 3) {
+  const r = len / 2, R = r + arm + SPARE, cx = R, cy = R;
+  const nodes = {}, tracks = [];
+  exits.forEach((deg, i) => {
+    const a = (deg * Math.PI) / 180;
+    nodes[`B${i}`] = [cx + R * Math.cos(a), cy + R * Math.sin(a)];
+    tracks.push({ id: `x${i}`, from: `B${i}`, to: `T.${i}` });
+  });
+  return { nodes, tracks, switches: {}, turntables: { T: { center: [cx, cy], length: len, exits } } };
+}
+
 // Stars for a finish in this many moves or fewer: [three, two, one]. Three is
 // the fewest the solver found; one is twice that (at least two more); two,
 // which is par, sits halfway between. A level can set its own `stars`.
@@ -100,10 +126,13 @@ export const starsFor = (lv, moves) => {
 // their `from` node to their `to` node, which is left to right on screen):
 // L/M = locomotives, A–H = lettered cars, x = an unlettered car, . = empty.
 // `goals` list cars left to right too, packed against the `end` node.
-// In order of how hard they are to think through (not how big their search is):
-// two tutorials, then parking a car aside (Swap two), the loop trick (Run around),
-// parking at scale, gathering from several sidings, reversing, two goals at
-// once, and finally yards with almost no room to work in.
+// In order of how hard they are to think through, each one built around an
+// idea that the later ones use: two tutorials; parking a car aside; getting
+// round your train on a loop; a locomotive couples at one end only, and a
+// turntable turns it; pressure plates (a car sets them off, setting one off
+// again, not setting it off again, holding one switch still with a car on its
+// points); a turntable that turns itself; two locomotives; then reversing a
+// train and a yard with almost no room.
 export const LEVELS = [
   {
     name: "Delivery",
@@ -138,28 +167,62 @@ export const LEVELS = [
     fewest: 4,
   },
   {
-    name: "Pick out",
-    blurb: "Get A B C to their markers.",
-    layout: ladder(5, [5, 3]),
-    start: { head: "L", s1: "x B x A C" },
-    goals: [{ track: "s1", end: "E1", cars: "A B C" }],
-    fewest: 10,
+    name: "Turn around",
+    blurb: "Bring A across. The locomotive only couples at one end.",
+    layout: turnaround(),
+    start: { west: ". A", east: "L> . ." },
+    goals: [{ track: "east", end: "T.1", cars: "A" }],
+    fewest: 2,
   },
   {
-    name: "Three sidings",
-    blurb: "Gather A B C D at their markers.",
-    layout: ladder(4, [4, 3, 3]),
-    start: { head: "L", s1: ". . D B", s2: ". . C", s3: ". . A" },
-    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
-    fewest: 13,
+    name: "Stepping stone",
+    blurb: "A plate throws whatever it's wired to. Push A to its marker.",
+    layout: { ...ladder(5, [3, 3]), plates: [{ track: "head", slot: 3, wires: ["P1"] }] },
+    start: { head: "L> A . . ." },
+    goals: [{ track: "s2", end: "E2", cars: "A" }],
+    fewest: 0,
   },
   {
-    name: "Four in order",
-    blurb: "Line up A B C D at their markers.",
-    layout: ladder(5, [5, 3, 3]),
-    start: { head: "L", s1: "C . A", s2: "B . D" },
-    goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
-    fewest: 12,
+    name: "Cachunk",
+    blurb: "Push A to its marker.",
+    layout: { ...ladder(5, [3, 3]), plates: [{ track: "head", slot: 3, wires: ["P1"] }] },
+    start: { head: "L> A . . ." },
+    goals: [{ track: "s1", end: "E1", cars: "A" }],
+    fewest: 0,
+  },
+  {
+    name: "Keep it covered",
+    blurb: "Move A to the other siding.",
+    layout: { ...ladder(5, [3, 3]), plates: [{ track: "head", slot: 3, wires: ["P1"] }] },
+    start: { head: "L> . . . .", s1: ". . A" },
+    goals: [{ track: "s2", end: "E2", cars: "A" }],
+    fewest: 2,
+  },
+  {
+    name: "Block one",
+    blurb: "One plate, two switches. Get A to the middle siding.",
+    layout: { ...ladder(5, [3, 3, 3]), plates: [{ track: "head", slot: 1, wires: ["P1", "P2"] }] },
+    start: { head: "L> . . A ." },
+    goals: [{ track: "s2", end: "E2", cars: "A" }],
+    fewest: 0,
+    solveStep: 0.5, // the trick is a car stopped across a switch's points
+  },
+  {
+    name: "Merry-go-round",
+    blurb: "The turntable turns when a car reaches the far end of it.",
+    layout: { ...roundTable([0, 90, 180, 270], 3), plates: [{ track: "T.deck", slot: 0, wires: ["T"] }] },
+    start: { x2: ". L> A" },
+    goals: [{ track: "x3", end: "B3", cars: "A" }],
+    fewest: 1,
+    solveStep: 0.5,
+  },
+  {
+    name: "Hand-off",
+    blurb: "Two locomotives facing opposite ways. Bring A to the far end.",
+    layout: ladder(5, [3, 3]),
+    start: { head: ". . L> . .", s1: "<M . .", s2: ". . A" },
+    goals: [{ track: "head", end: "H", cars: "A" }],
+    fewest: 6,
   },
   {
     name: "Reverse three",
@@ -170,30 +233,17 @@ export const LEVELS = [
     fewest: 13,
   },
   {
-    name: "Two trains",
-    blurb: "Sort the cars into two trains at their markers.",
-    layout: ladder(3, [3, 3, 3]),
-    start: { head: "L", s1: "E A", s2: ". B F", s3: ". C D" },
-    goals: [{ track: "s1", end: "E1", cars: "A B C" }, { track: "s2", end: "E2", cars: "D E F" }],
-    fewest: null, // too big to search; stars set by hand
-    stars: [24, 32, 42],
-  },
-  {
-    name: "Swap sidings",
-    blurb: "Swap the two trains.",
-    layout: ladder(4, [3, 3, 2]),
-    start: { head: "L", s1: "A B C", s2: "D E F" },
-    goals: [{ track: "s1", end: "E1", cars: "D E F" }, { track: "s2", end: "E2", cars: "A B C" }],
-    fewest: null, // too big to search; stars set by hand
-    stars: [22, 30, 40],
-  },
-  {
     name: "Tight squeeze",
     blurb: "Line up A B C D at their markers. There's barely any room.",
     layout: ladder(3, [4, 2, 3]),
     start: { head: "L", s1: "x C x A", s2: "D B" },
     goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
     fewest: null, // too big to search; stars set by hand
+    // Too big for solve.mjs to finish. It can be: it was checked by replaying a
+    // solution in the engine, and the one-sided coupler can't matter here, since
+    // every track to the locomotive's right is a dead end, so it never gets past
+    // a car and every car stays on its coupler side.
+    searchTooBig: true,
     stars: [40, 55, 75],
   },
 ];

@@ -1,16 +1,24 @@
-// Continuous movement: what actually happens on screen.
+// How things move: the rules of the game.
 //
 // Every car has a position along a track (the arclength `s` of its center)
 // and is one car length long, so two cars touch when their centers are one
-// car length apart along the route. Nothing moves unless a loco drives it:
-// the loco carries the cars coupled to it, pushes whatever it runs into, and
-// everything else stays exactly where it is.
+// car length apart along the route. Nothing moves unless a locomotive drives
+// it: the locomotive carries the cars coupled to it, pushes whatever it runs
+// into, and everything else stays where it is (or rolls on a little, see
+// index.html). A locomotive has a coupler on one end only: it pushes with
+// either end but can only couple (and so pull) with that one.
 //
-// state = { at: [{ track, s }], sw: [leg per switch], coupled: Set("i,j") }
+// state = {
+//   at: [{ track, s }] per car,
+//   sw: [leg per switch], tt: [stop per turntable],
+//   face: { locoIndex: +1 | -1 }, the end its coupler is on (+1: toward its track's `to` end),
+//   coupled: Set("i,j"),
+//   plateOn: [bool per plate], whether something was on it last we looked,
+// }
 
 import { nextTrack, walk } from "./yard.mjs";
 
-export const FOUL = 1; // how far from the points the two legs are too close for two cars (one car length, so it matches the slot model in yard.mjs exactly)
+export const FOUL = 1; // how far from the points the two legs are too close for two cars
 export const BLANK = 0.42; // the stretch of a leg at the points that's cut off when the switch is set against it
 // how big a gap you can couple across: the cars then pull together to the
 // usual coupled spacing (see index.html)
@@ -24,11 +32,19 @@ export function toggleCoupling(state, i, j) {
   if (state.coupled.has(k)) state.coupled.delete(k); else state.coupled.add(k);
 }
 
-export function fromSlots(yard, { pos, sw, coupled }) {
-  return { at: pos.map((p) => ({ track: yard.slots[p].track, s: yard.slots[p].s })), sw: sw.slice(), coupled: new Set(coupled) };
+export function fromSlots(yard, { pos, sw, tt, face, coupled }) {
+  const state = {
+    at: pos.map((p) => ({ track: yard.slots[p].track, s: yard.slots[p].s })),
+    sw: sw.slice(), tt: (tt || []).slice(), face: { ...(face || {}) }, coupled: new Set(coupled),
+  };
+  state.plateOn = yard.plates.map((pl) => plateCovered(yard, state, pl));
+  return state;
 }
 export function clone(state) {
-  return { at: state.at.map((p) => ({ ...p })), sw: state.sw.slice(), coupled: new Set(state.coupled) };
+  return {
+    at: state.at.map((p) => ({ ...p })), sw: state.sw.slice(), tt: state.tt.slice(), face: { ...state.face },
+    coupled: new Set(state.coupled), plateOn: state.plateOn.slice(),
+  };
 }
 
 // Nearest car center along the route from (track, s) heading dir, within maxDist.
@@ -46,7 +62,7 @@ export function scan(yard, state, track, s, dir, maxDist, skip = null) {
     const t = yard.tracks[track];
     dist += dir > 0 ? t.len - s : s;
     if (dist > maxDist) return null;
-    const nx = nextTrack(yard, track, dir > 0 ? t.to : t.from, state.sw);
+    const nx = nextTrack(yard, track, dir > 0 ? t.to : t.from, state);
     if (!nx) return null;
     track = nx.track; dir = nx.dir; s = dir > 0 ? 0 : yard.tracks[track].len;
   }
@@ -107,9 +123,13 @@ function barrier(yard, state, front, skip) {
       const other = S.legs.find((l) => l !== track);
       if (legFouled(yard, state, other, nodeId, skip)) return { dist: dist + room - 0.5 - FOUL, node: nodeId, why: "foul" };
     }
-    const nx = nextTrack(yard, track, nodeId, state.sw);
-    // a buffer, or a switch set against it: the nose stops where the drawn track ends
-    if (!nx) return { dist: Math.max(0, dist + room - 0.5 - (S ? BLANK : 0)), node: nodeId, why: S ? "against" : "buffer" };
+    const nx = nextTrack(yard, track, nodeId, state);
+    // a buffer, a switch set against it, or the edge of a turntable pit: the
+    // nose stops where the drawn track ends
+    if (!nx) {
+      const why = S ? "against" : yard.nodes[nodeId].turntable ? "pit" : "buffer";
+      return { dist: Math.max(0, dist + room - 0.5 - (S ? BLANK : 0)), node: nodeId, why };
+    }
     dist += room;
     if (dist > 1e3) break;
     track = nx.track; dir = nx.dir; s = dir > 0 ? 0 : yard.tracks[track].len;
@@ -131,16 +151,34 @@ function throughPoints(yard, state, front) {
 }
 
 // Drive `loco` up to `amount` car lengths in direction d. Moves the cars in
-// place. Returns { moved, dir (the loco's travel direction now), stop }.
-// Cars in `fixed` (other locos, which have their brakes on) can't be pushed.
-// Also returns the cars that moved, front first, with their travel directions.
+// place. Returns { moved, dir (the loco's travel direction now), stop,
+// members (the cars that moved, front first, with their travel directions),
+// events (plates that went off, see updatePlates) }. Cars in `fixed` (other
+// locomotives, which have their brakes on) can't be pushed.
 export function drive(yard, state, loco, d, amount, fixed = null) {
-  return moveChain(yard, state, loco, d, amount, true, fixed);
+  return inSteps(yard, state, (amt, dir) => moveChain(yard, state, loco, dir, amt, true, fixed), d, amount);
 }
 
 // A free-rolling car (and whatever's coupled to it) carrying on by itself.
 export function coast(yard, state, car, d, amount, fixed = null) {
-  return moveChain(yard, state, car, d, amount, true, fixed);
+  return inSteps(yard, state, (amt, dir) => moveChain(yard, state, car, dir, amt, true, fixed), d, amount);
+}
+
+// Plates are checked every PLATE_STEP of movement, so a switch a plate throws
+// partway through a drive takes effect for the rest of it.
+const PLATE_STEP = 0.1;
+function inSteps(yard, state, mover, d, amount) {
+  if (!yard.plates.length) return { ...mover(amount, d), events: [] };
+  let moved = 0, dir = d, stop = null, members = [];
+  const events = [];
+  while (moved < amount - EPS) {
+    const r = mover(Math.min(PLATE_STEP, amount - moved), dir);
+    moved += r.moved; dir = r.dir; members = r.members;
+    events.push(...updatePlates(yard, state));
+    if (r.stop) { stop = r.stop; break; }
+    if (r.moved <= EPS) break;
+  }
+  return { moved, dir, stop, members, events };
 }
 
 function moveChain(yard, state, lead, d, amount, pull, fixed = null) {
@@ -178,8 +216,11 @@ function moveChain(yard, state, lead, d, amount, pull, fixed = null) {
     }
 
     if (len > 0) for (const m of members) {
-      const p = walk(yard, state.at[m.c].track, state.at[m.c].s, m.dir, len, state.sw);
+      const p = walk(yard, state.at[m.c].track, state.at[m.c].s, m.dir, len, state);
       state.at[m.c] = { track: p.track, s: p.s };
+      // a locomotive that rolls onto a track running the other way still has
+      // its coupler on the same end; relative to the new track, that's the other side
+      if (state.face[m.c] != null && Math.sign(p.dir) !== Math.sign(m.dir)) state.face[m.c] = -state.face[m.c];
       m.dir = p.dir;
       if (m.c === lead) dir = p.dir;
     }
@@ -208,9 +249,10 @@ export function throwSwitch(yard, state, k) {
   return true;
 }
 
-// Every pair of cars close enough to couple (touching, or within REACH of it):
-// [{ a, b, dir, dist }] where dir is the direction from a to b along a's track,
-// dist the distance between their centers, and `across` names a switch between them.
+// Every pair of cars close enough to couple (touching, or within REACH of it),
+// not counting a locomotive's end without a coupler: [{ a, b, dir, dist, across }]
+// where dir is the direction from a to b along a's track, dist the distance
+// between their centers, and `across` names a switch or turntable node between them.
 export function joints(yard, state) {
   const out = [], seen = new Set();
   state.at.forEach((p, a) => {
@@ -220,17 +262,80 @@ export function joints(yard, state) {
       const k = pairKey(a, r.car);
       if (seen.has(k)) continue;
       seen.add(k);
+      // a locomotive couples only on its coupler end
+      if (state.face[a] != null && state.face[a] !== d) continue;
+      if (state.face[r.car] != null && state.face[r.car] !== -r.dir) continue;
       const q = state.at[r.car];
       let across = null;
       if (q.track !== p.track) {
         const t = yard.tracks[p.track];
         const n = d > 0 ? t.to : t.from;
-        if (yard.switchIndex[n] != null) across = n;
+        if (yard.switchIndex[n] != null || yard.nodes[n].turntable) across = n;
       }
       out.push({ a, b: r.car, dir: d, dist: r.dist, across });
     }
   });
   return out;
+}
+
+// ---------- turntables ----------
+// A turntable turns whenever nothing hangs off the deck or over the edge of
+// the pit, and no coupling crosses the edge. A car a hair over the edge
+// (up to SLACK) doesn't count: nobody should have to park to the pixel.
+const SLACK = 0.15;
+export function turntableLocked(yard, state, k) {
+  const T = yard.turntables[k], deck = yard.tracks[T.deck];
+  const rims = new Set(T.exits.map((e) => e.node));
+  const hanging = state.at.some((p) => {
+    if (p.track === T.deck) return p.s < 0.5 - SLACK || p.s > deck.len - 0.5 + SLACK;
+    const t = yard.tracks[p.track];
+    return (rims.has(t.from) && p.s < 0.5 - SLACK) || (rims.has(t.to) && t.len - p.s < 0.5 - SLACK);
+  });
+  if (hanging) return true;
+  return joints(yard, state).some((j) => isCoupled(state, j.a, j.b) && j.across && yard.nodes[j.across].turntable === T.id);
+}
+
+// Turn to the next stop, going round by increasing angle. Returns false if it can't turn.
+export function turnTurntable(yard, state, k) {
+  if (turntableLocked(yard, state, k)) return false;
+  const T = yard.turntables[k], len = yard.tracks[T.deck].len;
+  state.tt[k] = (state.tt[k] + 1) % T.stops.length;
+  // anything a hair over the edge is settled onto the deck as it turns, so it
+  // doesn't swing round into a car waiting at the next exit
+  const on = state.at.filter((p) => p.track === T.deck);
+  if (on.length) {
+    const lo = Math.min(...on.map((p) => p.s)), hi = Math.max(...on.map((p) => p.s));
+    const shift = lo < 0.5 ? 0.5 - lo : hi > len - 0.5 ? len - 0.5 - hi : 0;
+    for (const p of on) p.s += shift;
+  }
+  return true;
+}
+
+// ---------- pressure plates ----------
+// A plate counts as covered while any car is over it. A car is one car length
+// end to end, couplers included, so a train of touching cars covers it the
+// whole way across: it goes off once per train, not once per car.
+const PLATE_HALF = 0.25;
+export function plateCovered(yard, state, plate) {
+  return state.at.some((p) => p.track === plate.track && Math.abs(p.s - plate.s) < 0.5 + PLATE_HALF);
+}
+
+// Check every plate; each one something has just rolled onto goes off: every
+// switch and turntable wired to it changes, unless a car on it holds it where
+// it is. Returns [{ plate, results: [{ switch | turntable, ok }] }].
+export function updatePlates(yard, state) {
+  const events = [];
+  yard.plates.forEach((pl, i) => {
+    const on = plateCovered(yard, state, pl);
+    if (on && !state.plateOn[i]) {
+      const results = pl.wires.map((w) => (w.switch != null
+        ? { switch: w.switch, ok: throwSwitch(yard, state, w.switch) }
+        : { turntable: w.turntable, ok: turnTurntable(yard, state, w.turntable) }));
+      events.push({ plate: i, results });
+    }
+    state.plateOn[i] = on;
+  });
+  return events;
 }
 
 // Where each goal car belongs: packed against the goal's end of its track,

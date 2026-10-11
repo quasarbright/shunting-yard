@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ladder, LEVELS } from "./levels.mjs";
 import { loadLevel } from "./setup.mjs";
-import { fromSlots, drive, toggleCoupling, switchLocked, throwSwitch, joints, goalMet, turnTurntable, turntableLocked, FOUL, BLANK, REACH } from "./motion.mjs";
+import { fromSlots, drive, toggleCoupling, switchLocked, throwSwitch, joints, goalMet, turnTurntable, turntableLocked, FOUL, REACH } from "./motion.mjs";
 
 const setup = (start, layout = ladder(3, [3, 3])) => {
   const lv = loadLevel({ layout, start, goals: [] });
@@ -92,11 +92,12 @@ test("coming down a leg into the side of a car on the other leg is blocked", () 
   assert.ok(r.moved < 1, "stopped short of the points");
 });
 
-test("against a switch set the other way, the nose stops where the drawn track ends", () => {
+test("against a switch set the other way, the train stops at the points", () => {
   const { yard, state } = setup({ s2: ". L" });
   const r = drive(yard, state, 0, -1, 5);
   assert.equal(r.stop.why, "against");
-  near(state.at[0].s - 0.5, BLANK, "nose BLANK short of the points");
+  near(state.at[0].s, 0.5, "nose right at the points, not on them");
+  assert.ok(!switchLocked(yard, state, 0), "and so not blocking the switch");
 });
 
 test("done means every goal car is touching its own marker", () => {

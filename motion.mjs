@@ -19,7 +19,6 @@
 import { nextTrack, walk } from "./yard.mjs";
 
 export const FOUL = 1; // how far from the points the two legs are too close for two cars
-export const BLANK = 0.42; // the stretch of a leg at the points that's cut off when the switch is set against it
 // how big a gap you can couple across: the cars then pull together to the
 // usual coupled spacing (see index.html)
 export const REACH = 0.12;
@@ -125,10 +124,11 @@ function barrier(yard, state, front, skip) {
     }
     const nx = nextTrack(yard, track, nodeId, state);
     // a buffer, a switch set against it, or the edge of a turntable pit: the
-    // nose stops where the drawn track ends
+    // nose stops at the end of the line (against a switch, that's the points,
+    // just short of the stretch a car would block it from; see index.html)
     if (!nx) {
       const why = S ? "against" : yard.nodes[nodeId].turntable ? "pit" : "buffer";
-      return { dist: Math.max(0, dist + room - 0.5 - (S ? BLANK : 0)), node: nodeId, why };
+      return { dist: Math.max(0, dist + room - 0.5), node: nodeId, why };
     }
     dist += room;
     if (dist > 1e3) break;

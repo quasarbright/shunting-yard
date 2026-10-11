@@ -281,7 +281,7 @@
     import { loadLevel } from "./setup.mjs";
     import { walk, nextTrack, pointOnTrack, setDeckAngle } from "./yard.mjs";
     import {
-      fromSlots, clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, BLANK, REACH, goalSpots, atSpot,
+      fromSlots, clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, REACH, goalSpots, atSpot,
       turnTurntable, turntableLocked, plateCovered, BODY,
     } from "./motion.mjs";
 
@@ -968,7 +968,10 @@
       for (const id of Object.keys(yard.tracks)) litAmt.set(id, ease(litAmt.get(id) ?? (lit.has(id) ? 1 : 0), lit.has(id) ? 1 : 0, 1 / 0.25));
 
       // track: dim everywhere, lamp-lit along the route the locomotives can reach.
-      // At a switch, the first stretch of the leg it isn't set to fades out.
+      // At a switch, the leg it isn't set to loses its stretch at the points (the
+      // steel stretch, JOINT long), fading as the switch throws. That's exactly the
+      // stretch a car over would block the switch, so a car is never left on track
+      // that's gone.
       const unset = (t, nodeId) => {
         const k = yard.switchIndex[nodeId];
         if (k == null) return 0;
@@ -978,11 +981,11 @@
       function strokeTrack(t, width, color, alpha, s0 = 0, s1 = t.len) {
         if (alpha <= 0.002) return;
         const cutA = unset(t, t.from), cutB = unset(t, t.to);
-        const a0 = Math.max(s0, cutA ? BLANK : 0), a1 = Math.min(s1, cutB ? t.len - BLANK : t.len);
+        const a0 = Math.max(s0, cutA ? JOINT : 0), a1 = Math.min(s1, cutB ? t.len - JOINT : t.len);
         ctx.lineWidth = width; ctx.strokeStyle = color;
         if (a1 > a0) { ctx.globalAlpha = alpha; trackPath(t, a0, a1); ctx.stroke(); }
         // the fading stretch at a switched-away leg's points, within [s0, s1]
-        const e0 = Math.min(s1, BLANK), e1 = Math.max(s0, t.len - BLANK);
+        const e0 = Math.min(s1, JOINT), e1 = Math.max(s0, t.len - JOINT);
         if (cutA && s0 < e0) { ctx.globalAlpha = alpha * (1 - cutA); trackPath(t, s0, e0); ctx.stroke(); }
         if (cutB && e1 < s1) { ctx.globalAlpha = alpha * (1 - cutB); trackPath(t, e1, s1); ctx.stroke(); }
         ctx.globalAlpha = 1;

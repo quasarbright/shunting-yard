@@ -1134,6 +1134,8 @@
         const pose = poses[c], active = hoverLoco === c;
         for (const d of [1, -1]) {
           if (!canDrive(c, d)) continue;
+          // a car right there on this side: its coupler line goes in that gap, not an arrow
+          if (scan(yard, state, state.at[c].track, state.at[c].s, d, 1 + REACH + 0.01)) continue;
           const h = heading(c, d);
           const tipX = sx(pose.x + h.x * 0.62), tipY = sy(pose.y + h.y * 0.62);
           const s = L * 0.11;
@@ -1149,33 +1151,41 @@
         }
       });
 
-      // couplers between every pair of touching cars
+      // Couplers. Every coupler is a circle at its end of the car, always there:
+      // both ends of a car, only the coupler end of a locomotive. Two couplers
+      // close enough to couple get a line between them, the circles still hollow;
+      // once coupled, a solid link is drawn over both.
       {
-        for (const j of joints(yard, state)) {
-          const m = jointPoint(j);
-          const x = sx(m.x), y = sy(m.y);
-          const on = isCoupled(state, j.a, j.b);
-          const hot = hover && hover.kind === "joint" && hover.j.a === j.a && hover.j.b === j.b;
-          // a coupler is a link across the gap; uncoupled, it's two hooks apart. Amber,
-          // like everything else you can click, with a dark edge so it reads on any car.
-          const k = hot ? 1.35 : 1;
-          ctx.save();
-          ctx.translate(x, y); ctx.rotate(m.ang);
-          const hl = Math.max(7, L * 0.15) * k, hh = Math.max(5, L * 0.09) * k;
-          const col = hot ? C.amberHi : C.amber;
-          const pill = (x0, w) => { roundRect(x0, -hh / 2, w, hh, hh / 2); };
-          // the gap between the car bodies, which a coupled link stretches across
-          const gapPx = (j.dist - 1) * L / 2;
-          const parts = on ? [[-hl - gapPx, (hl + gapPx) * 2]] : [[-hl - gapPx, hl * 0.65], [hl * 0.35 + gapPx, hl * 0.65]];
-          ctx.lineWidth = 2.5; ctx.strokeStyle = C.bg;
-          for (const [x0, w] of parts) { pill(x0, w); ctx.stroke(); }
-          for (const [x0, w] of parts) {
-            pill(x0, w);
-            if (on) { ctx.fillStyle = col; ctx.fill(); }
-            else { ctx.fillStyle = C.bg; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = col; ctx.stroke(); }
+        // circles sit just inside the car's end, small enough that two touching
+        // cars' circles have a visible gap for the line between them
+        const R = Math.max(3, L * 0.052);
+        const end = (c, side) => walk(yard, state.at[c].track, state.at[c].s, side, BODY / 2 - 0.03, state);
+        const links = joints(yard, state).map((j) => ({
+          j, p: end(j.a, j.dir), q: end(j.b, dirToward(j.b, j.a)),
+          on: isCoupled(state, j.a, j.b),
+          hot: hover && hover.kind === "joint" && hover.j.a === j.a && hover.j.b === j.b,
+        }));
+        const line = (p, q, width, color) => {
+          ctx.lineCap = "round"; ctx.lineWidth = width; ctx.strokeStyle = color;
+          ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(q.x), sy(q.y)); ctx.stroke();
+        };
+        // in reach, not yet coupled: a line between the two
+        for (const k of links) if (!k.on) line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04)), k.hot ? C.amberHi : C.amber);
+        // every coupler's circle
+        cars.forEach((car, c) => {
+          for (const side of [1, -1]) {
+            if (car.loco && state.face[c] !== side) continue;
+            const e = end(c, side);
+            ctx.beginPath(); ctx.arc(sx(e.x), sy(e.y), R, 0, Math.PI * 2);
+            ctx.fillStyle = C.bg; ctx.fill();
+            ctx.lineWidth = Math.max(1.5, L * 0.03); ctx.strokeStyle = C.steel; ctx.stroke();
           }
-          ctx.restore();
-          if (hot) labels.push({ text: on ? "uncouple" : "couple", x, y, dy: -L * 0.42 });
+        });
+        // coupled: a solid link over both circles
+        for (const k of links) if (k.on) line(k.p, k.q, Math.max(3.5, L * (k.hot ? 0.095 : 0.08)), k.hot ? C.amberHi : C.amber);
+        for (const k of links) if (k.hot) {
+          const m = jointPoint(k.j);
+          labels.push({ text: k.on ? "uncouple" : "couple", x: sx(m.x), y: sy(m.y), dy: -L * 0.42 });
         }
       }
 

@@ -27,6 +27,13 @@ export function shade(hex, f = 0.42) {
   return "#" + ch(n >> 16) + ch((n >> 8) & 255) + ch(n & 255);
 }
 
+// a color part way (f, 0 to 1) from one to another
+export function mix(a, b, f) {
+  const n = (h) => parseInt(h.slice(1, 7), 16), p = n(a), q = n(b);
+  const ch = (s) => Math.round(((p >> s) & 255) + (((q >> s) & 255) - ((p >> s) & 255)) * f).toString(16).padStart(2, "0");
+  return "#" + ch(16) + ch(8) + ch(0);
+}
+
 // A little map of a level: its track, and its cars where they start.
 export function thumbSvg(level, cls = "st-thumb") {
   let lv;
@@ -820,12 +827,13 @@ export function createGame(canvas, opts = {}) {
         ctx.lineCap = "round"; ctx.lineWidth = width; ctx.strokeStyle = color;
         ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(q.x), sy(q.y)); ctx.stroke();
       };
-      // in reach, not yet coupled: a line between the two, swelling a little
-      // in time with its couplers blinking, so it catches the eye
-      const pulse = interactive ? 0.5 - 0.5 * Math.cos(now / 260) : 0;
-      for (const k of links) if (!k.on) line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04 + 0.015 * pulse)), k.hot ? C.amberHi : C.amber);
+      // in reach, not yet coupled: a line between the two. It and the two
+      // couplers fade back and forth between gray and amber, so they catch the eye.
+      const pulse = interactive ? 0.5 - 0.5 * Math.cos(now / 260) : 1;
+      const glow = mix(C.steel, C.amberHi, pulse);
+      for (const k of links) if (!k.on) line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04)), k.hot ? C.amberHi : glow);
       // every coupler's circle; the two either side of a gap you could couple
-      // across blink amber
+      // across fade with its line
       const ready = new Set();
       if (interactive) for (const k of links) if (!k.on) { ready.add(`${k.j.a}:${k.j.dir}`); ready.add(`${k.j.b}:${dirToward(k.j.b, k.j.a)}`); }
       cars.forEach((car, c) => {
@@ -835,7 +843,7 @@ export function createGame(canvas, opts = {}) {
           ctx.beginPath(); ctx.arc(sx(e.x), sy(e.y), R, 0, Math.PI * 2);
           ctx.fillStyle = C.bg; ctx.fill();
           ctx.lineWidth = Math.max(1.5, L * 0.03);
-          ctx.strokeStyle = ready.has(`${c}:${side}`) && pulse > 0.5 ? C.amberHi : C.steel;
+          ctx.strokeStyle = ready.has(`${c}:${side}`) ? glow : C.steel;
           ctx.stroke();
         }
       });

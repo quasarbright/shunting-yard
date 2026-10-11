@@ -342,14 +342,17 @@ export function updatePlates(yard, state) {
 // How long a car (and a goal marker) is drawn, in car lengths.
 export const BODY = 0.84;
 
-// Is the car touching its spot: on the goal track, with its body overlapping
-// the marker? (Loose on purpose; nobody should have to line cars up to the pixel.)
+// How long a goal marker is drawn: a little longer than a car.
+export const MARKER = 0.92;
+
+// Is the car on its marker: on the goal track, inside the marker, give or
+// take 5% of the car hanging over its end?
 export function atSpot(state, track, car, s) {
   const p = state.at[car];
-  return p.track === track && Math.abs(p.s - s) < BODY;
+  return p.track === track && Math.abs(p.s - s) <= (MARKER - BODY) / 2 + 0.05 * BODY + 1e-9;
 }
 
-// The goal: every goal car touching its spot ({ car, track, s }). Where the
+// The goal: every goal car on its marker ({ car, track, s }). Where the
 // other cars are doesn't matter.
 export function goalMet(goals, state) {
   return goals.length > 0 && goals.every((g) => atSpot(state, g.track, g.car, g.s));

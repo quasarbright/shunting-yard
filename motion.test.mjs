@@ -125,13 +125,13 @@ test("against a switch set the other way, the train stops at the points", () => 
   assert.ok(!switchLocked(yard, state, 0), "and so not blocking the switch");
 });
 
-test("done means every goal car is touching its own marker", () => {
+test("done means every goal car is on its own marker, hardly hanging over it", () => {
   const { state, goals } = setup([loco(0.5, 0), car(5.5, 0, "A"), car(6.5, 0, "B")],
     { goals: [{ at: [5.5, 0], name: "A" }, { at: [6.5, 0], name: "B" }] });
   assert.ok(goalMet(goals, state), "on the markers: done");
-  state.at[1].s -= 0.5; state.at[2].s -= 0.5; // half a car short: still touching
+  state.at[1].s -= 0.08; state.at[2].s -= 0.08; // a hair over the marker's end: still done
   assert.ok(goalMet(goals, state));
-  state.at[1].s -= 0.5; state.at[2].s -= 0.5; // a whole car short: not touching
+  state.at[1].s -= 0.1; state.at[2].s -= 0.1; // more of the car off the marker: not done
   assert.ok(!goalMet(goals, state));
 });
 

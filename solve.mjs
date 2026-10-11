@@ -39,6 +39,17 @@ export function solve(level, { maxStates = 2e6 } = {}) {
           const m = M.clone(st);
           if (M.drive(yard, m, loco, d, gap).moved > gap - 1e-6) moves.push([m, { drive: loco, d }]);
         }
+        // or just far enough to put a goal car right on its marker (markers
+        // round a curve sit at odd distances, off the step grid)
+        for (const mem of M.group(yard, st, loco, d)) {
+          const g = goals.find((x) => x.car === mem.c), p = st.at[mem.c];
+          if (!g || p.track !== g.track) continue;
+          const ds = (g.s - p.s) * mem.dir;
+          if (ds > 1e-6 && ds < STEP - 1e-6) {
+            const m = M.clone(st);
+            if (M.drive(yard, m, loco, d, ds).moved > ds - 1e-6) moves.push([m, { drive: loco, d }]);
+          }
+        }
       }
       yard.switches.forEach((S, k) => {
         if (!S.lever) return;

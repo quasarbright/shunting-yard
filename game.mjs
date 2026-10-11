@@ -5,7 +5,7 @@ import { loadLevel } from "./setup.mjs";
 import { walk, nextTrack, pointOnTrack, setDeckAngle } from "./yard.mjs";
 import {
   clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, REACH, POINTS, atSpot,
-  turnTurntable, turntableLocked, BODY,
+  turnTurntable, turntableLocked, BODY, MARKER,
 } from "./motion.mjs";
 
 export const C = {
@@ -31,7 +31,7 @@ export function shade(hex, f = 0.42) {
 export function thumbSvg(level, cls = "st-thumb") {
   let lv;
   try { lv = loadLevel(level); } catch { return `<svg class="${cls}" viewBox="0 0 1 1"></svg>`; }
-  const { yard: y, cars: cs, state: st } = lv;
+  const { yard: y, cars: cs, goals: gs, state: st } = lv;
   const b = y.bounds, pad = 0.5, w = b.maxX - b.minX + 2 * pad, h = b.maxY - b.minY + 2 * pad;
   const X = (x) => (x - b.minX + pad).toFixed(2), Y = (v) => (v - b.minY + pad).toFixed(2);
   let svg = `<svg class="${cls}" viewBox="0 0 ${w.toFixed(2)} ${h.toFixed(2)}" preserveAspectRatio="xMidYMid meet">`;
@@ -42,6 +42,11 @@ export function thumbSvg(level, cls = "st-thumb") {
   for (const pl of y.plates) {
     const q = pointOnTrack(y.tracks[pl.track], pl.s);
     svg += `<rect x="-0.25" y="-0.3" width="0.5" height="0.6" rx="0.06" fill="${C.wire}" transform="translate(${X(q.x)} ${Y(q.y)}) rotate(${(q.ang * 180 / Math.PI).toFixed(1)})"/>`;
+  }
+  // goals: an outlined marker in the car's color
+  for (const g of gs) {
+    const q = pointOnTrack(y.tracks[g.track], g.s), col = carColor(cs[g.car]);
+    svg += `<rect x="-0.46" y="-0.3" width="0.92" height="0.6" rx="0.1" fill="${col}" fill-opacity="0.2" stroke="${col}" stroke-width="0.08" transform="translate(${X(q.x)} ${Y(q.y)}) rotate(${(q.ang * 180 / Math.PI).toFixed(1)})"/>`;
   }
   st.at.forEach((p, c) => {
     const q = pointOnTrack(y.tracks[p.track], p.s);
@@ -752,7 +757,7 @@ export function createGame(canvas, opts = {}) {
       const ok = atSpot(state, g.track, g.car, g.s);
       ctx.save();
       ctx.translate(sx(sl.x), sy(sl.y)); ctx.rotate(sl.ang);
-      const w = L * 0.92, h = L * 0.66;
+      const w = L * MARKER, h = L * 0.66;
       roundRect(-w / 2, -h / 2, w, h, L * 0.1);
       ctx.globalAlpha = ok ? 0.5 : 0.18; ctx.fillStyle = col; ctx.fill();
       ctx.globalAlpha = ok ? 1 : 0.7; ctx.lineWidth = Math.max(2, L * 0.04); ctx.strokeStyle = col; ctx.stroke();
@@ -815,19 +820,12 @@ export function createGame(canvas, opts = {}) {
         ctx.lineCap = "round"; ctx.lineWidth = width; ctx.strokeStyle = color;
         ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(q.x), sy(q.y)); ctx.stroke();
       };
-      // in reach, not yet coupled: a line between the two, with a soft glow
-      // that swells and fades so it catches the eye
-      const pulse = 0.5 - 0.5 * Math.cos(now / 260);
-      for (const k of links) if (!k.on) {
-        if (interactive && !k.hot) {
-          ctx.globalAlpha = 0.08 + 0.32 * pulse;
-          line(k.p, k.q, L * (0.16 + 0.3 * pulse), C.amberHi);
-          ctx.globalAlpha = 1;
-        }
-        line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04)), k.hot ? C.amberHi : C.amber);
-      }
+      // in reach, not yet coupled: a line between the two, swelling a little
+      // in time with its couplers blinking, so it catches the eye
+      const pulse = interactive ? 0.5 - 0.5 * Math.cos(now / 260) : 0;
+      for (const k of links) if (!k.on) line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04 + 0.015 * pulse)), k.hot ? C.amberHi : C.amber);
       // every coupler's circle; the two either side of a gap you could couple
-      // across pulse amber with its glow
+      // across blink amber
       const ready = new Set();
       if (interactive) for (const k of links) if (!k.on) { ready.add(`${k.j.a}:${k.j.dir}`); ready.add(`${k.j.b}:${dirToward(k.j.b, k.j.a)}`); }
       cars.forEach((car, c) => {

@@ -7,6 +7,7 @@
 //   GET  /api/levels          every level file: { order, levels: [{ id, name }] }
 //   PUT  /api/levels/<id>     save the level that was <id>: to levels/<slug of its name>.level.json
 //                             (renaming it, in order.json too, if its name changed)
+//   DELETE /api/levels/<id>   delete levels/<id>.level.json and take it out of order.json
 //   PUT  /api/order           write levels/order.json (the levels in the game, in order)
 import { createServer } from "node:http";
 import { readFile, writeFile, readdir, stat, unlink } from "node:fs/promises";
@@ -83,6 +84,15 @@ async function api(req, res, path) {
       if (order.includes(was)) await writeFile(join(LEVELS, "order.json"), JSON.stringify(order.map((x) => (x === was ? id : x)), null, 2) + "\n");
     }
     return send(res, 200, { ok: true, id });
+  }
+  // Delete a level: its file, and its place in the game.
+  if (req.method === "DELETE" && m) {
+    const id = decodeURIComponent(m[1]);
+    if (!ID.test(id)) return send(res, 400, { error: "no such level" });
+    await unlink(join(LEVELS, `${id}.level.json`)).catch(() => {});
+    const order = JSON.parse(await readFile(join(LEVELS, "order.json"), "utf8"));
+    if (order.includes(id)) await writeFile(join(LEVELS, "order.json"), JSON.stringify(order.filter((x) => x !== id), null, 2) + "\n");
+    return send(res, 200, { ok: true });
   }
   send(res, 404, { error: "no such route" });
 }

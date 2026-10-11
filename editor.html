@@ -84,9 +84,20 @@
     .ed-list { display: flex; flex-direction: column; gap: 6px; min-height: 40px; border-radius: 12px; }
     .ed-list.is-target { outline: 2px dashed var(--accent); outline-offset: 4px; }
     .ed-row {
-      display: grid; grid-template-columns: 26px 120px 1fr auto; align-items: center; gap: 12px;
-      background: var(--panel-2); border-radius: 12px; padding: 6px 10px; cursor: grab;
+      position: relative; display: grid; grid-template-columns: 26px 120px 1fr auto; align-items: center; gap: 12px;
+      background: var(--panel-2); border-radius: 12px; padding: 6px 40px 6px 10px; cursor: grab;
     }
+    .ed-del {
+      position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; display: grid; place-items: center;
+      border: 0; border-radius: 8px; background: transparent; color: var(--faint); cursor: pointer;
+    }
+    .ed-del:hover { background: #e0556b; color: #121619; }
+    .ed-del svg.st-ico { width: 14px; height: 14px; stroke-width: 3; }
+    .ed-confirm .ed-sheet { width: min(420px, 100%); }
+    .ed-confirm p b { color: var(--text); }
+    .ed-confirm .ed-sheet-foot { gap: 10px; }
+    .st-btn.is-danger { background: #e0556b; color: #121619; --btn-lip: #8c2f3f; }
+    .st-btn.is-danger:hover { background: #ec6d81; }
     .ed-row.is-current { box-shadow: inset 0 0 0 2px var(--accent); }
     .ed-row.is-dragging { opacity: .4; }
     .ed-row .ed-num { font: 400 .8rem var(--font-display); color: var(--faint); text-align: right; }
@@ -203,6 +214,17 @@
         <button class="st-btn is-amber" id="create">Make it</button>
       </div>
       <div class="ed-sheet-foot"><button class="st-btn" id="closeLevels">Close</button></div>
+    </div>
+  </div>
+
+  <div class="ed-modal ed-confirm" id="confirmDelete" hidden>
+    <div class="ed-sheet" role="alertdialog" aria-labelledby="deleteTitle">
+      <h2 id="deleteTitle">Delete this level?</h2>
+      <p id="deleteWhat"></p>
+      <div class="ed-sheet-foot">
+        <button class="st-btn" id="deleteNo">Keep it</button>
+        <button class="st-btn is-danger" id="deleteYes">Delete</button>
+      </div>
     </div>
   </div>
 

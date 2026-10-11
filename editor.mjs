@@ -770,12 +770,53 @@ function buildLists() {
       row.innerHTML = `<span class="ed-num">${numbered ? i + 1 : ""}</span>${thumbs.get(id) || ""}` +
         `<div><div class="ed-name">${byId.get(id).name}</div><div class="ed-id">${id}</div></div>`;
       row.onclick = () => { closeLevels(); openLevel(id); };
+      const del = document.createElement("button");
+      del.className = "ed-del";
+      del.title = `delete ${byId.get(id).name}`;
+      del.innerHTML = '<svg class="st-ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+      del.onclick = (e) => { e.stopPropagation(); askDelete(id, byId.get(id).name); };
+      row.appendChild(del);
       row.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", id); row.classList.add("is-dragging"); });
       row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
       box.appendChild(row);
     });
   }
 }
+// Deleting a level, once you've said yes. If it's the one open, the editor
+// moves on to the first level left.
+let deleting = null;
+function askDelete(id, name) {
+  deleting = id;
+  const inGame = catalog.order.includes(id);
+  $("deleteWhat").innerHTML = "";
+  const b = document.createElement("b");
+  b.textContent = name;
+  $("deleteWhat").append(b, ` (levels/${id}.level.json)${inGame ? " comes out of the game and" : ""} is deleted for good.`);
+  $("confirmDelete").hidden = false;
+  $("deleteNo").focus();
+}
+function closeDelete() { $("confirmDelete").hidden = true; deleting = null; }
+async function confirmDelete() {
+  const id = deleting;
+  closeDelete();
+  if (!id) return;
+  const res = await fetch(`/api/levels/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) return flash(`couldn't delete it: ${(await res.json()).error}`);
+  thumbs.delete(id);
+  await loadCatalog();
+  if (id === docId) {
+    savedSnap = snap(doc); // nothing to keep: it's gone
+    const next = catalog.order[0] || catalog.levels[0]?.id;
+    if (next) await openLevel(next);
+    else { doc = blank(); docId = null; savedSnap = snap(doc); past = []; future = []; refresh({ refit: true }); updateWhere(); }
+  }
+  buildLists();
+  flash("Deleted", "good", 1200);
+}
+$("deleteNo").onclick = closeDelete;
+$("deleteYes").onclick = confirmDelete;
+$("confirmDelete").addEventListener("pointerdown", (e) => { if (e.target === $("confirmDelete")) closeDelete(); });
+
 // dropping a row: into the game list at that place, or out to the drafts
 for (const box of [$("inGame"), $("drafts")]) {
   box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("is-target"); });
@@ -857,6 +898,7 @@ window.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key === "s") { e.preventDefault(); save(); return; }
   if (e.target.closest("input, textarea")) return;
+  if (!$("confirmDelete").hidden) { if (e.key === "Escape") closeDelete(); return; }
   if (!$("levels").hidden) { if (e.key === "Escape") closeLevels(); return; }
   if (e.key === " " || (playing && e.key === "Escape")) { e.preventDefault(); setPlaying(!playing); return; }
   // playing: the game's keys (⌘Z undoes a move too, not an edit)

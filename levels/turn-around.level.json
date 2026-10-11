@@ -1,6 +1,5 @@
 {
   "name": "Turn around",
-  "blurb": "Bring A across. The locomotive only couples at one end.",
   "track": [
     [[0, 0], [2, 0]],
     [[4, 0], [7, 0]]

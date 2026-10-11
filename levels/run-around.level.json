@@ -1,6 +1,5 @@
 {
   "name": "Run around",
-  "blurb": "Get the locomotive to the other end of its train.",
   "track": [
     [[0, 0], [15, 0]],
     [[6, 0], [7, -1], [9, -1], [10, 0]]

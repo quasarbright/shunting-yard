@@ -120,21 +120,33 @@ export function createGame(canvas, opts = {}) {
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     canvas.style.width = W + "px"; canvas.style.height = H + "px";
     if (!yard) return;
-    const b = opts.view?.() || yard.bounds, pad = 0.8;
+    const b = opts.view?.() || fitBounds(), pad = 0.15;
     const bw = b.maxX - b.minX + 2 * pad, bh = b.maxY - b.minY + 2 * pad;
     const m = opts.margins ? opts.margins(W, H) : { top: 16, bottom: 16, side: 16 };
     const { top, bottom, side } = m, left = m.left ?? side, right = m.right ?? side;
     // On a portrait phone the yard runs down the screen instead of across it,
     // when that makes the cars bigger. The drawing happens in an unrotated
     // "layout" space, turned a quarter clockwise onto the screen.
-    const flatL = Math.min((W - left - right) / bw, (H - top - bottom) / bh, opts.maxL ?? 96);
-    const tallL = Math.min((H - top - bottom) / bw, (W - 2 * side) / bh, opts.maxL ?? 96);
+    const flatL = Math.min((W - left - right) / bw, (H - top - bottom) / bh, opts.maxL ?? 150);
+    const tallL = Math.min((H - top - bottom) / bw, (W - 2 * side) / bh, opts.maxL ?? 150);
     rot = opts.rotate && H > W && tallL > flatL * 1.15 ? Math.PI / 2 : 0;
     let x0, x1, y0, y1;
     if (rot) { L = tallL; x0 = top; x1 = H - bottom; y0 = side; y1 = W - side; }
     else { L = flatL; x0 = left; x1 = W - right; y0 = top; y1 = H - bottom; }
     ox = x0 + (x1 - x0 - (b.maxX - b.minX) * L) / 2 - b.minX * L;
     oy = y0 + (y1 - y0 - (b.maxY - b.minY) * L) / 2 - b.minY * L;
+  }
+  // Everything that's drawn, not just the track: levers stand beside their
+  // switches and turntables, buffer stops' frames reach back past the end of
+  // the track, and cars are half a car wide.
+  function fitBounds() {
+    let { minX, minY, maxX, maxY } = yard.bounds;
+    const grow = (x, y, r) => { minX = Math.min(minX, x - r); maxX = Math.max(maxX, x + r); minY = Math.min(minY, y - r); maxY = Math.max(maxY, y + r); };
+    for (const t of Object.values(yard.tracks)) for (const [x, y] of t.pts) grow(x, y, 0.3);
+    for (const n of Object.values(yard.nodes)) if (n.kind === "buffer") grow(n.x, n.y, 0.5);
+    yard.switches.forEach((S, k) => { if (S.lever) { const p = leverPos(k); grow(p.x, p.y, 0.45); } });
+    yard.turntables.forEach((T, k) => { grow(T.center[0], T.center[1], T.r + 0.15); if (T.manual) { const p = tableLeverPos(k); grow(p.x, p.y, 0.45); } });
+    return { minX, minY, maxX, maxY };
   }
   const sx = (x) => ox + x * L, sy = (y) => oy + y * L;
   const wx = (px) => (px - ox) / L, wy = (py) => (py - oy) / L;

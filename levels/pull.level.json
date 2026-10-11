@@ -1,0 +1,13 @@
+{
+  "name": "Pull",
+  "track": [
+    [[2, 2], [7, 2]]
+  ],
+  "cars": [
+    { "at": [2.5, 2], "name": "A" },
+    { "at": [3.5, 2], "kind": "locomotive", "coupler": "W" }
+  ],
+  "goals": [
+    { "at": [5.5, 2], "name": "A" }
+  ]
+}

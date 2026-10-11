@@ -11,7 +11,7 @@
 //
 // A level file:
 // {
-//   name, blurb,
+//   name,
 //   track: [[[x, y], [x, y], ...], ...]  paths of grid points; each step runs
 //                                        straight across, down or diagonally
 //   turntables: [{ at: [x, y], length, exits: ["E", "SW", ...], deck?: "E" }]
@@ -23,6 +23,7 @@
 //   cars: [{ at: [x, y], kind?: "locomotive", coupler?: "E", name?: "A" }]
 //                                        no kind and no name: an unlettered car
 //   goals: [{ at: [x, y], name: "A" }]
+//   couplings: [[[x, y], [x, y]], ...]   pairs of cars (by where they are) that start coupled
 // }
 // Things on the track sit at "spots": the middle of each grid step, and one
 // car length apart along a turntable's deck. `at` is the spot's position.

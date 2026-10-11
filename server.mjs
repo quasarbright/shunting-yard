@@ -34,7 +34,7 @@ const bodyOf = (req) => new Promise((ok, fail) => {
 // A level file, laid out to read well and diff well: one line per car,
 // goal, plate, turntable and path.
 export function formatLevel(level) {
-  const keys = ["name", "blurb", "track", "turntables", "switches", "plates", "cars", "goals"];
+  const keys = ["name", "track", "turntables", "switches", "plates", "cars", "couplings", "goals"];
   const lines = [];
   for (const k of [...keys, ...Object.keys(level).filter((k) => !keys.includes(k))]) {
     const v = level[k];

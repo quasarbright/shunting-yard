@@ -68,6 +68,17 @@ test("track that can't be built is a problem, not a crash", () => {
   assert.ok(problems({ track: [[[0, 0], [3, 0]]], turntables: [{ at: [2, 0], length: 1, exits: ["E"] }] }).includes("track runs into the turntable"));
 });
 
+test("cars can start coupled, if they're close enough to couple", () => {
+  const track = [[[0, 0], [6, 0]]];
+  const cars = [{ at: [0.5, 0], kind: "locomotive", coupler: "E" }, { at: [1.5, 0] }, { at: [3.5, 0] }];
+  const lv = loadLevel({ track, cars, couplings: [[[0.5, 0], [1.5, 0]]] });
+  assert.deepEqual([...lv.state.coupled], ["0,1"]);
+  assert.deepEqual(problems({ track, cars, couplings: [[[1.5, 0], [3.5, 0]]] }), ["those two can't start coupled"]);
+  // a locomotive couples only at its coupler end
+  const back = [{ at: [0.5, 0], kind: "locomotive", coupler: "W" }, { at: [1.5, 0] }];
+  assert.deepEqual(problems({ track, cars: back, couplings: [[[0.5, 0], [1.5, 0]]] }), ["those two can't start coupled"]);
+});
+
 test("cars can't start on top of each other, or side by side at a switch", () => {
   const track = [[[0, 0], [6, 0]], [[3, 0], [4, 1], [6, 1]]];
   assert.deepEqual(problems({ track, cars: [{ at: [1.5, 0] }, { at: [1.5, 0] }] }), ["two cars on top of each other"]);

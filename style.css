@@ -81,7 +81,6 @@ svg.st-ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke
 .st-tag { margin-left: auto; text-align: right; max-width: calc(100% - 120px); padding-top: 4px; }
 .st-tag-name { font: 400 1.15rem/1.1 var(--font-display); color: var(--text); }
 .st-tag-num { font: 400 .78rem var(--font-display); color: var(--faint); }
-.st-tag-goal { margin-top: 4px; font-weight: 600; font-size: .9rem; color: var(--muted); }
 
 /* a pointer to what to do next, over the yard */
 .st-nudge {
@@ -142,7 +141,6 @@ mike-footer[overlay] { z-index: 11 !important; } /* over the start screen (cohes
   .st-level .st-done { grid-column: 3; grid-row: 1 / 4; }
   .st-level .st-lock { grid-row: 1 / 4; height: 46px; }
   .st-bar { top: 10px; left: 10px; right: 10px; }
-  .st-tag-goal { font-size: .8rem; }
   .st-controls { gap: 10px; bottom: 34px; }
   .st-ctl .st-btn, .st-home .st-btn { width: 46px; height: 46px; }
   .st-controls .st-gap { width: 2px; }

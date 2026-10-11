@@ -25,7 +25,6 @@
       background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--text);
       font: 400 1.15rem var(--font-display); padding: 2px 4px; min-width: 0; outline: none;
     }
-    .ed-fields input.ed-blurb { font: 600 .92rem var(--font-ui); color: var(--muted); }
     .ed-fields input:hover { border-bottom-color: var(--border); }
     .ed-fields input:focus { border-bottom-color: var(--accent); }
     .ed-where { font: 700 .75rem var(--font-ui); letter-spacing: .04em; color: var(--faint); padding: 0 4px; white-space: nowrap; }
@@ -49,6 +48,14 @@
     }
     .ed-hint.is-bad { color: var(--on-accent); background: #e0556b; }
     .ed-hint.is-good { color: var(--on-accent); background: var(--accent-hi); }
+
+    /* hover tips: show at once, beside what they're about */
+    .ed-tip {
+      position: fixed; z-index: 30; pointer-events: none; max-width: 300px;
+      background: var(--panel-2); color: var(--muted); border-radius: 10px; padding: 7px 11px;
+      font-weight: 600; font-size: .86rem; line-height: 1.35; box-shadow: 0 6px 18px rgba(0,0,0,.45);
+    }
+    .ed-tip b { color: var(--text); font-weight: 800; }
 
     /* things that are allowed but probably not meant: a car with no goal, no locomotive */
     .ed-warn {
@@ -104,9 +111,7 @@
       <svg class="st-ico" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Levels
     </button>
     <div class="ed-fields">
-      <input id="name" spellcheck="false" title="the level's name" placeholder="Level name" />
-      <input id="blurb" class="ed-blurb" spellcheck="false" title="the line under the name in the game" placeholder="What to do, in a line" />
-    </div>
+      <input id="name" spellcheck="false" title="the level's name" placeholder="Level name" />    </div>
     <span class="ed-where" id="where"></span>
     <div class="ed-spacer"></div>
     <span class="ed-saved" id="saved"></span>
@@ -118,7 +123,7 @@
 
   <div class="tool-rail" id="rail">
     <div class="tool-group" id="tools">
-      <button class="tool is-active" data-tool="track" title="Track (T): drag across the grid to lay track. Corners curve on their own; a branch off a track makes a switch. Click a switch, turntable or locomotive to change which way it starts.">
+      <button class="tool is-active" data-tool="track" title="Track (T): drag across the grid to lay track. Corners curve on their own; a branch off a track makes a switch. Click a switch, turntable or locomotive to change which way it starts, or between two cars to start them coupled.">
         <svg viewBox="0 0 24 24"><path d="M3 18h6l6-12h6"/><path d="M5 15.5v5M9.5 15.5v5M14 3.5v5M19 3.5v5"/></svg>
       </button>
       <button class="tool" data-tool="erase" title="Erase (E): click or drag over track, cars, goals, plates or a turntable to remove them. Right-drag erases with any tool.">
@@ -128,13 +133,13 @@
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><path d="M8 8l8 8M1.5 12h3.5M19 12h3.5M12 1.5V5"/></svg>
       </button>
       <button class="tool" data-tool="loco" title="Locomotive (L): click a spot on the track to put a locomotive there; click one to turn its coupler round.">
-        <svg viewBox="0 0 24 24"><rect x="3" y="8" width="15" height="8" rx="2"/><path d="M6 10.5h3v3H6zM18 12h3"/></svg>
+        <svg viewBox="0 0 24 24" style="width:28px;height:28px"><rect x="1" y="5" width="22" height="14" rx="2.5" fill="#e9e4d6" stroke="#121619" stroke-width="1"/><rect x="4.5" y="8.5" width="7" height="7" rx="1" fill="#121619" stroke="none"/></svg>
       </button>
       <button class="tool" data-tool="car" title="Car (C): pick a letter (1–9), then click a spot. Each letter is one car; gray cars can be as many as you like.">
-        <svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="8" rx="2"/><path d="M2 12h2M20 12h2"/></svg>
+        <svg viewBox="0 0 24 24" style="width:28px;height:28px"><rect x="1" y="5" width="22" height="14" rx="2.5" fill="#e9e4d6" stroke="#121619" stroke-width="1"/><text x="12" y="16.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-weight="600" font-size="12" fill="#121619" stroke="none">A</text></svg>
       </button>
       <button class="tool" data-tool="goal" title="Goal (G): pick a letter (1–8), then click the spot where that car has to end up.">
-        <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2.5" stroke-dasharray="3 2.2"/></svg>
+        <svg viewBox="0 0 24 24" style="width:28px;height:28px"><rect x="1" y="5" width="22" height="14" rx="2.5" fill="#0b0e10" stroke="#e9e4d6" stroke-width="1"/><text x="12" y="16.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-weight="600" font-size="12" fill="#e9e4d6" stroke="none">A</text></svg>
       </button>
       <button class="tool" data-tool="plate" title="Plate (P): click a spot to put a pressure plate there; click one to remove it. Drag from a plate to a switch or turntable to wire it (drag again to unwire).">
         <svg viewBox="0 0 24 24"><rect x="7" y="5" width="10" height="14" rx="2"/><path d="M17 12c3 0 4-4 4-7" stroke-dasharray="2 2"/></svg>
@@ -153,6 +158,18 @@
 
   <div class="ed-hint" id="hint"></div>
   <ul class="ed-warn" id="warn" hidden></ul>
+  <div class="ed-tip" id="tip" hidden></div>
+
+  <!-- finished it while playing -->
+  <div class="st-win" id="win" hidden>
+    <div class="st-card" role="dialog" aria-labelledby="winTitle">
+      <h2 id="winTitle">Shunted!</h2>
+      <div class="st-card-actions">
+        <button class="st-btn" id="winAgain">Play again</button>
+        <button class="st-btn is-amber" id="winEdit">Back to editing</button>
+      </div>
+    </div>
+  </div>
   <div class="st-nudge is-gone" id="nudge"></div>
 
   <div class="ed-modal" id="levels" hidden>

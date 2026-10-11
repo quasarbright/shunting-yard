@@ -1,4 +1,6 @@
 [
+  "push",
+  "pull",
   "delivery",
   "fetch",
   "swap-two",

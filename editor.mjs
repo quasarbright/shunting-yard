@@ -5,7 +5,8 @@
 import { createGame, C, CAR_COLORS, thumbSvg } from "./game.mjs";
 import { loadLevel } from "./setup.mjs";
 import { layoutOf, edgesOf, pathsOf, ekey, DIRS, DIR_NAMES, vkey, dirOf, turnBetween } from "./grid.mjs";
-import { goalMet } from "./motion.mjs";
+import { goalMet, joints } from "./motion.mjs";
+import { walk } from "./yard.mjs";
 
 const $ = (id) => document.getElementById(id);
 const LETTERS = "ABCDEFGH".split("");
@@ -16,17 +17,17 @@ const opp = (d) => (d + 4) % 8;
 const unit = (d) => { const [x, y] = DIRS[d], l = Math.hypot(x, y); return [x / l, y / l]; };
 
 // ---------- the level being edited ----------
-const blank = (name = "") => ({ name, blurb: "", edges: new Map(), turntables: [], switches: [], plates: [], cars: [], goals: [] });
+const blank = (name = "") => ({ name, edges: new Map(), turntables: [], switches: [], plates: [], cars: [], couplings: [], goals: [] });
 function toFile(d) {
-  const f = { name: d.name, blurb: d.blurb, track: pathsOf(d.edges) };
-  for (const k of ["turntables", "switches", "plates", "cars", "goals"]) if (d[k].length) f[k] = d[k];
+  const f = { name: d.name, track: pathsOf(d.edges) };
+  for (const k of ["turntables", "switches", "plates", "cars", "couplings", "goals"]) if (d[k].length) f[k] = d[k];
   return f;
 }
 function fromFile(f) {
   const c = (x) => JSON.parse(JSON.stringify(x || []));
   return {
-    name: f.name ?? "", blurb: f.blurb ?? "", edges: edgesOf(f), turntables: c(f.turntables), switches: c(f.switches),
-    plates: c(f.plates).map((p) => ({ ...p, wires: p.wires || [] })), cars: c(f.cars), goals: c(f.goals),
+    name: f.name ?? "", edges: edgesOf(f), turntables: c(f.turntables), switches: c(f.switches),
+    plates: c(f.plates).map((p) => ({ ...p, wires: p.wires || [] })), cars: c(f.cars), couplings: c(f.couplings), goals: c(f.goals),
   };
 }
 const copy = (d) => fromFile(toFile(d));
@@ -52,6 +53,7 @@ function prune(d) {
   d.plates = d.plates.filter(on);
   const names = new Set(d.cars.map((c) => c.name).filter(Boolean));
   d.goals = d.goals.filter((g) => on(g) && names.has(g.name));
+  d.couplings = d.couplings.filter((pair) => pair.every((p) => d.cars.some((c) => same(c.at, p))));
   d.switches = d.switches.filter((s) => { const S = l.switchAt.get(vkey(...s.at)); return S && S.legs.includes(DIR_NAMES.indexOf(s.set)); });
   const targets = new Set([...l.switchAt.keys(), ...d.turntables.map((T) => vkey(...T.at))]);
   for (const p of d.plates) p.wires = p.wires.filter((w) => targets.has(vkey(...w)));
@@ -89,12 +91,13 @@ function warningsOf(file) {
   for (const p of file.plates || []) if (!p.wires.length) out.push({ msg: "A plate isn't wired to anything", at: p.at });
   for (const T of file.turntables || []) if (!T.exits.length) out.push({ msg: "A turntable has no exits", at: T.at });
   if (!file.name.trim()) out.push({ msg: "The level has no name" });
-  if (!file.blurb.trim()) out.push({ msg: "There's no line saying what to do" });
   return out;
 }
 
+let loaded = null; // the level as the game loads it, for finding couplings under the pointer
 function refresh({ refit = false } = {}) {
   lay = layoutOf(toFile(doc));
+  loaded = loadLevel(toFile(doc), { strict: false });
   warnings = warningsOf(toFile(doc));
   const box = $("warn");
   box.hidden = !warnings.length || playing;
@@ -106,7 +109,6 @@ function refresh({ refit = false } = {}) {
   $("saved").textContent = !docId ? "not saved yet" : dirty ? "unsaved changes" : "saved";
   $("saved").classList.toggle("is-dirty", dirty || !docId);
   if (document.activeElement !== $("name")) $("name").value = doc.name;
-  if (document.activeElement !== $("blurb")) $("blurb").value = doc.blurb;
   showHint();
 }
 
@@ -149,7 +151,7 @@ let stroke = null;     // a drag in progress
 let strokeId = 0;
 
 const HINTS = {
-  track: "Drag across the grid to lay track. Click a switch, turntable or locomotive to change which way it starts.",
+  track: "Drag across the grid to lay track. Click a switch, turntable or locomotive to change how it starts, or between two cars to couple them.",
   erase: "Click or drag over anything to remove it.",
   turntable: "Click to place a turntable, on track or off it. Click its middle to lengthen it; click just outside the rim to add an exit.",
   loco: "Click a spot to put a locomotive there. Click one to turn its coupler round.",
@@ -328,6 +330,14 @@ function clickTool(w) {
 // What a click on w would change about how the level starts: a switch's
 // leg, a turntable's deck, or a locomotive's coupler. null if nothing's there.
 function toggleTarget(w, { points = true } = {}) {
+  // between two cars close enough to couple: whether they start coupled
+  const lv = loaded;
+  if (lv && !lv.problems.length) {
+    for (const j of joints(lv.yard, lv.state)) {
+      const p = lv.state.at[j.a], m = walk(lv.yard, p.track, p.s, j.dir, j.dist / 2, lv.state);
+      if (dist(w, [m.x, m.y]) < 0.25) return { kind: "joint", pair: [doc.cars[j.a].at, doc.cars[j.b].at], at: [m.x, m.y] };
+    }
+  }
   const sw = switchNear(w, points);
   if (sw) return { kind: "switch", sw };
   const s = spotAt(w), li = s ? doc.cars.findIndex((c) => c.kind === "locomotive" && same(c.at, s.at)) : -1;
@@ -340,6 +350,12 @@ function toggleTarget(w, { points = true } = {}) {
 function toggleAt(w, opts) {
   const tg = toggleTarget(w, opts);
   if (!tg) return;
+  if (tg.kind === "joint") {
+    return attempt((d) => {
+      const i = d.couplings.findIndex((pair) => tg.pair.every((p) => pair.some((q) => same(p, q))));
+      if (i >= 0) d.couplings.splice(i, 1); else d.couplings.push(tg.pair);
+    });
+  }
   if (tg.kind === "loco") return attempt((d) => { const c = d.cars[tg.i]; c.coupler = DIR_NAMES[opp(DIR_NAMES.indexOf(c.coupler || "E"))]; });
   if (tg.kind === "switch") {
     const { k, S } = tg.sw;
@@ -383,11 +399,10 @@ function wireTarget(w) {
 // ---------- the game, drawing the level ----------
 const game = createGame($("yard"), {
   rotate: false,
-  maxL: 72,
   nudgeEl: $("nudge"),
   view: () => (playing ? null : view),
-  margins: () => (playing ? { top: 90, bottom: 100, side: 30 } : { top: 80, bottom: 90, left: 84, right: 24 }),
-  onWin: () => flash("Level complete", "good", 4000),
+  margins: () => (playing ? { top: 100, bottom: 100, side: 30 } : { top: 80, bottom: 90, left: 84, right: 24 }),
+  onWin: () => setTimeout(() => { if (playing && game.solved) $("win").hidden = false; }, 350),
   underlay: drawGrid,
   overlay: drawOverlay,
 });
@@ -423,7 +438,8 @@ function drawOverlay(ctx, v) {
   if (!hover) return;
   // something a click would toggle: a switch, turntable or locomotive
   const toggle = (tg) => {
-    if (tg.kind === "switch") ring([(tg.sw.S.at[0] + tg.sw.S.points[0]) / 2, (tg.sw.S.at[1] + tg.sw.S.points[1]) / 2], L * 0.45, C.amberHi, 3);
+    if (tg.kind === "joint") ring(tg.at, L * 0.22, C.amberHi, 3);
+    else if (tg.kind === "switch") ring([(tg.sw.S.at[0] + tg.sw.S.points[0]) / 2, (tg.sw.S.at[1] + tg.sw.S.points[1]) / 2], L * 0.45, C.amberHi, 3);
     else if (tg.kind === "loco") ring(doc.cars[tg.i].at, L * 0.5, C.amberHi, 3);
     else { const T = doc.turntables[tg.i]; ring(T.at, (T.length / 2 + 0.15) * L, C.amberHi, 3); }
   };
@@ -536,6 +552,7 @@ canvas.addEventListener("pointerleave", () => { if (!stroke) hover = null; });
 function setPlaying(on) {
   playing = on;
   $("rail").hidden = on;
+  $("win").hidden = true;
   $("warn").hidden = on || !warnings.length;
   $("play").querySelector("span").textContent = on ? "Edit" : "Play";
   $("play").querySelector("svg").innerHTML = on ? '<path d="M4 20h4L19 9l-4-4L4 16z"/>' : '<path d="M7 4.5v15l12-7.5z"/>';
@@ -649,6 +666,36 @@ for (const box of [$("inGame"), $("drafts")]) {
   });
 }
 
+// ---------- hover tips ----------
+// Every title becomes a tip that shows the moment the pointer's over it:
+// beside the tool rail's buttons, under everything else. "Name (key): what
+// it does" shows the name in bold.
+const tip = $("tip");
+document.addEventListener("pointerover", (e) => {
+  const el = e.target.closest("[title], [data-tip]");
+  if (!el) return;
+  if (el.title) { el.dataset.tip = el.title; el.removeAttribute("title"); }
+  const text = el.dataset.tip, colon = text.indexOf(": ");
+  tip.innerHTML = "";
+  if (colon > 0 && colon < 40) {
+    const b = document.createElement("b");
+    b.textContent = text.slice(0, colon);
+    tip.append(b, document.createTextNode(text.slice(colon + 1)));
+  } else tip.textContent = text;
+  tip.hidden = false;
+  const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+  const beside = !!el.closest(".tool-rail");
+  let x = beside ? r.right + 10 : r.left + r.width / 2 - t.width / 2;
+  let y = beside ? r.top + r.height / 2 - t.height / 2 : r.bottom + 8;
+  x = Math.max(8, Math.min(innerWidth - t.width - 8, x)); y = Math.max(8, Math.min(innerHeight - t.height - 8, y));
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+});
+document.addEventListener("pointerout", (e) => {
+  const el = e.target.closest("[data-tip]");
+  if (el && !el.contains(e.relatedTarget)) tip.hidden = true;
+});
+document.addEventListener("pointerdown", () => { tip.hidden = true; }, true);
+
 // ---------- wiring ----------
 for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
 $("undo").onclick = undo;
@@ -656,11 +703,13 @@ $("redo").onclick = redo;
 $("save").onclick = save;
 $("play").onclick = () => setPlaying(!playing);
 $("open").onclick = showLevels;
+$("winAgain").onclick = () => { $("win").hidden = true; game.load(toFile(doc), { play: true }); };
+$("winEdit").onclick = () => setPlaying(false);
 $("closeLevels").onclick = closeLevels;
 $("levels").addEventListener("pointerdown", (e) => { if (e.target === $("levels")) closeLevels(); });
 $("create").onclick = create;
 $("newName").addEventListener("keydown", (e) => { if (e.key === "Enter") create(); });
-for (const f of ["name", "blurb"]) {
+for (const f of ["name"]) {
   $(f).addEventListener("input", () => {
     if (lastMerge !== `field:${f}`) { past.push(snap(doc)); future = []; lastMerge = `field:${f}`; }
     doc[f] = $(f).value;
@@ -678,8 +727,8 @@ window.addEventListener("keydown", (e) => {
   if (!$("levels").hidden) { if (e.key === "Escape") closeLevels(); return; }
   if (e.key === " " || (playing && e.key === "Escape")) { e.preventDefault(); setPlaying(!playing); return; }
   if (playing) {
-    if (e.key === "z" && !mod) game.undo();
-    else if (e.key === "r" && !mod) game.reset();
+    if (e.key === "z" && !mod) { game.undo(); $("win").hidden = true; }
+    else if (e.key === "r" && !mod) { game.reset(); $("win").hidden = true; }
     return;
   }
   if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }

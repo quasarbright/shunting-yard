@@ -1,6 +1,5 @@
 {
   "name": "Fetch",
-  "blurb": "Fetch A and take it to its marker.",
   "track": [
     [[0, 0], [8, 0]],
     [[5, 0], [6, 1], [9, 1]]

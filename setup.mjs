@@ -3,7 +3,7 @@
 // things off the track or on top of each other.
 import { layoutOf, DIRS, DIR_NAMES, vkey } from "./grid.mjs";
 import { buildYard, locate, pointOnTrack } from "./yard.mjs";
-import { plateCovered, BODY, FOUL } from "./motion.mjs";
+import { plateCovered, joints, toggleCoupling, BODY, FOUL } from "./motion.mjs";
 
 const LOCO_NAMES = ["L", "M", "N", "O", "P"];
 
@@ -107,6 +107,17 @@ export function loadLevel(level, { strict = true } = {}) {
   });
   const tt = yard.turntables.map((T) => T.start);
   const state = { at, sw, tt, face, coupled: new Set() };
+  // pairs of cars that start coupled: each pair has to be close enough to couple
+  const reach = joints(yard, state);
+  for (const pair of level.couplings || []) {
+    const [i, j] = pair.map((p) => (level.cars || []).findIndex((c) => c.at[0] === p[0] && c.at[1] === p[1]));
+    if (i < 0 || j < 0 || !reach.some((r) => (r.a === i && r.b === j) || (r.a === j && r.b === i))) {
+      problems.push({ msg: "those two can't start coupled", at: pair[0] });
+      continue;
+    }
+    toggleCoupling(state, i, j);
+  }
+  if (problems.length && strict) return fail();
   state.plateOn = yard.plates.map((pl) => plateCovered(yard, state, pl));
   return { yard, cars, goals, state, problems, layout: lay };
 }

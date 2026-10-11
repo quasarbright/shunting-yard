@@ -1,6 +1,5 @@
 {
   "name": "Reverse three",
-  "blurb": "Turn the train around.",
   "track": [
     [[0, 0], [10, 0]],
     [[6, 0], [7, 1], [10, 1]]

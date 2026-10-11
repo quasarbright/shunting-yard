@@ -1,6 +1,5 @@
 {
   "name": "Block one",
-  "blurb": "One plate, two switches. Get A to the middle siding.",
   "track": [
     [[0, 0], [9, 0]],
     [[6, 0], [7, 1], [11, 1]],

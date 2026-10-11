@@ -1,6 +1,5 @@
 {
   "name": "Tight squeeze",
-  "blurb": "Line up A B C D at their markers. There's barely any room.",
   "track": [
     [[0, 0], [8, 0]],
     [[4, 0], [5, 1], [8, 1]],

@@ -37,7 +37,6 @@
     <div class="st-tag">
       <div class="st-tag-num" id="tagNum"></div>
       <div class="st-tag-name" id="tagName"></div>
-      <div class="st-tag-goal" id="tagGoal"></div>
     </div>
   </div>
 
@@ -100,8 +99,8 @@
     const game = createGame($("yard"), {
       rotate: true,
       nudgeEl: $("nudge"),
-      // room for the top bar and the round controls
-      margins: (W) => ({ top: W <= 600 ? 120 : 100, bottom: W <= 600 ? 108 : 124, side: 16 }),
+      // room for the top bar and the round controls, the same top and bottom so the level sits in the middle
+      margins: (W) => (W <= 600 ? { top: 116, bottom: 116, side: 16 } : { top: 124, bottom: 124, side: 24 }),
       onHistory: () => { $("undo").disabled = !game.canUndo; $("reset").disabled = !game.canUndo; },
       onWin: win,
     });
@@ -113,7 +112,6 @@
       $("menu").hidden = true; $("bar").hidden = false; $("controls").hidden = false; $("win").hidden = true;
       $("tagNum").textContent = `Level ${levelIndex + 1}`;
       $("tagName").textContent = level.name;
-      $("tagGoal").textContent = level.blurb;
       updateGates();
     }
 
@@ -151,7 +149,7 @@
           return;
         }
         if (finished.has(lv.id)) btn.classList.add("is-done");
-        btn.title = `${lv.name}: ${lv.blurb}`;
+        btn.title = lv.name;
         btn.innerHTML = thumbSvg(lv) +
           `<span class="st-level-num">Level ${i + 1}</span>` +
           `<span class="st-level-name">${lv.name}</span>` +

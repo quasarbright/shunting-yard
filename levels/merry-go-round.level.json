@@ -1,6 +1,5 @@
 {
   "name": "Merry-go-round",
-  "blurb": "The turntable turns when a car reaches the far end of it.",
   "track": [
     [[0, 5], [3, 5]],
     [[7, 5], [10, 5]],

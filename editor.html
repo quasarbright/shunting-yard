@@ -50,6 +50,17 @@
     .ed-hint.is-bad { color: var(--on-accent); background: #e0556b; }
     .ed-hint.is-good { color: var(--on-accent); background: var(--accent-hi); }
 
+    /* things that are allowed but probably not meant: a car with no goal, no locomotive */
+    .ed-warn {
+      position: fixed; top: 76px; right: 12px; z-index: 5; margin: 0; padding: 10px 14px 10px 12px;
+      list-style: none; display: flex; flex-direction: column; gap: 6px; max-width: 300px;
+      background: var(--panel); border-radius: 14px; box-shadow: 0 4px 0 var(--lip), 0 8px 18px rgba(0,0,0,.35);
+      font-weight: 600; font-size: .88rem; color: var(--text);
+    }
+    .ed-warn li { display: flex; gap: 8px; align-items: baseline; }
+    .ed-warn li::before { content: "!"; flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+      background: #e0556b; color: #121619; font: 800 .75rem var(--font-ui); transform: translateY(2px); }
+
     /* ---------- open / new ---------- */
     .ed-modal {
       position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;
@@ -107,13 +118,13 @@
 
   <div class="tool-rail" id="rail">
     <div class="tool-group" id="tools">
-      <button class="tool is-active" data-tool="track" title="Track (T): drag across the grid to lay track. Corners curve on their own; a branch off a track makes a switch.">
+      <button class="tool is-active" data-tool="track" title="Track (T): drag across the grid to lay track. Corners curve on their own; a branch off a track makes a switch. Click a switch, turntable or locomotive to change which way it starts.">
         <svg viewBox="0 0 24 24"><path d="M3 18h6l6-12h6"/><path d="M5 15.5v5M9.5 15.5v5M14 3.5v5M19 3.5v5"/></svg>
       </button>
       <button class="tool" data-tool="erase" title="Erase (E): click or drag over track, cars, goals, plates or a turntable to remove them. Right-drag erases with any tool.">
         <svg viewBox="0 0 24 24"><path d="M20 20H8.5L4 15.5a2 2 0 0 1 0-2.8L12.7 4a2 2 0 0 1 2.8 0l4.3 4.3a2 2 0 0 1 0 2.8L11 20"/><path d="m8 9 7 7"/></svg>
       </button>
-      <button class="tool" data-tool="turntable" title="Turntable (U): click to place one. Click its middle to make it longer; click just outside its rim to add or remove an exit that way.">
+      <button class="tool" data-tool="turntable" title="Turntable (U): click to place one; on track, it takes over the track there. Click its middle to make it longer; click just outside its rim to add or remove an exit that way.">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><path d="M8 8l8 8M1.5 12h3.5M19 12h3.5M12 1.5V5"/></svg>
       </button>
       <button class="tool" data-tool="loco" title="Locomotive (L): click a spot on the track to put a locomotive there; click one to turn its coupler round.">
@@ -128,9 +139,6 @@
       <button class="tool" data-tool="plate" title="Plate (P): click a spot to put a pressure plate there; click one to remove it. Drag from a plate to a switch or turntable to wire it (drag again to unwire).">
         <svg viewBox="0 0 24 24"><rect x="7" y="5" width="10" height="14" rx="2"/><path d="M17 12c3 0 4-4 4-7" stroke-dasharray="2 2"/></svg>
       </button>
-      <button class="tool" data-tool="set" title="Set (S): click a switch to choose which way it starts; click a turntable to choose where it starts pointing.">
-        <svg viewBox="0 0 24 24"><path d="M6 20h12"/><path d="M12 20 16 7"/><circle cx="16.5" cy="5.5" r="2.5"/></svg>
-      </button>
     </div>
     <div class="tool-group ed-palette" id="palette" hidden></div>
     <div class="tool-group">
@@ -144,6 +152,7 @@
   </div>
 
   <div class="ed-hint" id="hint"></div>
+  <ul class="ed-warn" id="warn" hidden></ul>
   <div class="st-nudge is-gone" id="nudge"></div>
 
   <div class="ed-modal" id="levels" hidden>

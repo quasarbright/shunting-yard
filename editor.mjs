@@ -4,7 +4,8 @@
 // level on screen can always be played.
 import { createGame, C, CAR_COLORS, thumbSvg } from "./game.mjs";
 import { loadLevel } from "./setup.mjs";
-import { layoutOf, edgesOf, pathsOf, ekey, DIRS, DIR_NAMES, vkey } from "./grid.mjs";
+import { layoutOf, edgesOf, pathsOf, ekey, DIRS, DIR_NAMES, vkey, dirOf, turnBetween } from "./grid.mjs";
+import { goalMet } from "./motion.mjs";
 
 const $ = (id) => document.getElementById(id);
 const LETTERS = "ABCDEFGH".split("");
@@ -71,8 +72,33 @@ function attempt(change, { merge = null, quiet = false } = {}) {
   return true;
 }
 
+// Things the level allows but probably doesn't mean: [{ msg, at? }]
+let warnings = [];
+function warningsOf(file) {
+  const out = [];
+  if (!file.track.length) return out; // nothing yet
+  const cars = file.cars || [], goals = file.goals || [];
+  if (!cars.some((c) => c.kind === "locomotive")) out.push({ msg: "There's no locomotive" });
+  const goalFor = new Set(goals.map((g) => g.name));
+  for (const c of cars) if (c.name && !goalFor.has(c.name)) out.push({ msg: `Car ${c.name} has no goal`, at: c.at });
+  if (!goals.length) out.push({ msg: "No goals, so the level can't be finished" });
+  else {
+    const lv = loadLevel(file, { strict: false });
+    if (!lv.problems.length && goalMet(lv.goals, lv.state)) out.push({ msg: "It starts already finished" });
+  }
+  for (const p of file.plates || []) if (!p.wires.length) out.push({ msg: "A plate isn't wired to anything", at: p.at });
+  for (const T of file.turntables || []) if (!T.exits.length) out.push({ msg: "A turntable has no exits", at: T.at });
+  if (!file.name.trim()) out.push({ msg: "The level has no name" });
+  if (!file.blurb.trim()) out.push({ msg: "There's no line saying what to do" });
+  return out;
+}
+
 function refresh({ refit = false } = {}) {
   lay = layoutOf(toFile(doc));
+  warnings = warningsOf(toFile(doc));
+  const box = $("warn");
+  box.hidden = !warnings.length || playing;
+  box.innerHTML = warnings.map((w) => `<li>${w.msg}</li>`).join("");
   if (refit || outgrown()) fitView();
   if (!playing) game.load(toFile(doc), { play: false });
   $("undo").disabled = !past.length; $("redo").disabled = !future.length;
@@ -123,14 +149,13 @@ let stroke = null;     // a drag in progress
 let strokeId = 0;
 
 const HINTS = {
-  track: "Drag across the grid to lay track. Turns are 45° at most; a branch off a track makes a switch.",
+  track: "Drag across the grid to lay track. Click a switch, turntable or locomotive to change which way it starts.",
   erase: "Click or drag over anything to remove it.",
-  turntable: "Click to place a turntable. Click its middle to lengthen it; click just outside the rim to add an exit.",
+  turntable: "Click to place a turntable, on track or off it. Click its middle to lengthen it; click just outside the rim to add an exit.",
   loco: "Click a spot to put a locomotive there. Click one to turn its coupler round.",
   car: "Click a spot to put this car there, or click it again to take it away.",
   goal: "Click the spot where this car has to end up.",
   plate: "Click a spot for a plate; click a plate to remove it. Drag from a plate to a switch or turntable to wire it.",
-  set: "Click a switch to set which way it starts, or a turntable to set where it starts pointing.",
 };
 let flashMsg = null, flashTimer = 0;
 function flash(text, kind = "bad", ms = 2600) {
@@ -179,11 +204,13 @@ const spotAt = (w, r = 0.45) => {
 };
 const indexAt = (list, at) => list.findIndex((it) => same(it.at, at));
 const tableAt = (w, extra = 0) => doc.turntables.findIndex((T) => dist(w, T.at) < T.length / 2 + extra);
-function switchNear(w) {
+// A switch near w. Its points are also a spot, so tools that put things on
+// spots only count the grid point where it branches.
+function switchNear(w, points = true) {
   let best = null;
   for (const [k, S] of lay.switchAt) {
-    const d = Math.min(dist(w, S.at), dist(w, S.points));
-    if (d < 0.6 && (!best || d < best.d)) best = { k, S, d };
+    const d = points ? Math.min(dist(w, S.at), dist(w, S.points)) : dist(w, S.at);
+    if (d < (points ? 0.6 : 0.4) && (!best || d < best.d)) best = { k, S, d };
   }
   return best;
 }
@@ -225,16 +252,35 @@ function defaultCoupler(dir) {
   return DIR_NAMES[x > 0 || (x === 0 && y > 0) ? dir : opp(dir)];
 }
 
+// A turntable put down on track takes the track over: the track inside its
+// pit goes, and wherever track carries on from just outside the rim, roughly
+// straight out, becomes an exit.
+function absorb(d, i) {
+  const T = d.turntables[i], r = T.length / 2, [cx, cy] = T.at;
+  for (const [k, [a, b]] of [...d.edges]) if (dist(a, T.at) < r + 0.3 || dist(b, T.at) < r + 0.3) d.edges.delete(k);
+  for (let dir = 0; dir < 8; dir++) {
+    const [dx, dy] = DIRS[dir], step = Math.hypot(dx, dy), k = Math.floor(r / step + 1e-9) + 1, v = [cx + k * dx, cy + k * dy];
+    if (T.exits.includes(DIR_NAMES[dir])) continue;
+    // one track leaving that point, heading straight away from the turntable,
+    // or curving off where the stub from the rim is long enough to curve
+    const out = [...d.edges.values()].map(([a, b]) => (same(a, v) ? b : same(b, v) ? a : null)).filter(Boolean);
+    if (out.length !== 1) continue;
+    const turn = turnBetween(dirOf(out[0][0] - v[0], out[0][1] - v[1]), dir);
+    if (turn === 0 || (turn === 1 && k * step - r >= 0.5 - 1e-9)) T.exits.push(DIR_NAMES[dir]);
+  }
+}
+
 function clickTool(w) {
   if (tool === "turntable") {
     const i = tableAt(w, 1.3);
     if (i < 0) {
       const at = [Math.round(w[0]), Math.round(w[1])];
-      return attempt((d) => { d.turntables.push({ at, length: 1, exits: [] }); });
+      return attempt((d) => { d.turntables.push({ at, length: 1, exits: [] }); absorb(d, d.turntables.length - 1); });
     }
     const T = doc.turntables[i], r = T.length / 2;
     if (dist(w, T.at) < Math.max(0.35, r - 0.15)) {
-      return attempt((d) => { d.turntables[i].length = (T.length % 3) + 1; });
+      // longer, until 3, then back to 1; a longer one takes over more of the track
+      return attempt((d) => { d.turntables[i].length = (T.length % 3) + 1; absorb(d, i); });
     }
     // just outside the rim: the exit that way
     const ang = Math.atan2(w[1] - T.at[1], w[0] - T.at[0]);
@@ -244,44 +290,9 @@ function clickTool(w) {
       t.exits = t.exits.includes(dir) ? t.exits.filter((x) => x !== dir) : [...t.exits, dir];
     });
   }
-  if (tool === "set") {
-    const sw = switchNear(w);
-    if (sw) {
-      return attempt((d) => {
-        const i = d.switches.findIndex((s) => vkey(...s.at) === sw.k);
-        const cur = i >= 0 ? DIR_NAMES.indexOf(d.switches[i].set) : sw.S.legs[0];
-        const next = sw.S.legs.find((l) => l !== cur);
-        if (i >= 0) d.switches.splice(i, 1);
-        if (next !== sw.S.legs[0]) d.switches.push({ at: sw.S.at, set: DIR_NAMES[next] });
-      });
-    }
-    const t = tableAt(w, 0.2);
-    if (t >= 0) {
-      const T = doc.turntables[t], dirs = deckDirs(T);
-      if (dirs.length < 2) return flash("give the turntable an exit first");
-      const cur = T.deck ?? T.exits[0], next = dirs[(dirs.indexOf(cur) + 1) % dirs.length];
-      // whatever's on the deck turns with it
-      const [ux, uy] = unit(DIR_NAMES.indexOf(cur)), [vx, vy] = unit(DIR_NAMES.indexOf(next));
-      const turn = (at) => {
-        const o = (at[0] - T.at[0]) * ux + (at[1] - T.at[1]) * uy, off = Math.hypot(at[0] - T.at[0] - o * ux, at[1] - T.at[1] - o * uy);
-        return off < 1e-6 && Math.abs(o) < T.length / 2 ? [T.at[0] + o * vx, T.at[1] + o * vy] : null;
-      };
-      return attempt((d) => {
-        d.turntables[t].deck = next;
-        for (const it of [...d.cars, ...d.goals, ...d.plates]) {
-          const to = turn(it.at);
-          if (!to) continue;
-          it.at = to.map((v) => Math.round(v * 1e9) / 1e9);
-          if (it.coupler) { const c = DIR_NAMES.indexOf(it.coupler); it.coupler = c === DIR_NAMES.indexOf(cur) ? next : c === opp(DIR_NAMES.indexOf(cur)) ? DIR_NAMES[opp(DIR_NAMES.indexOf(next))] : it.coupler; }
-        }
-      });
-    }
-    const s = spotAt(w), li = s ? doc.cars.findIndex((c) => c.kind === "locomotive" && same(c.at, s.at)) : -1;
-    if (li >= 0) return attempt((d) => { const c = d.cars[li]; c.coupler = DIR_NAMES[opp(DIR_NAMES.indexOf(c.coupler || "E"))]; });
-    return;
-  }
+  if (tool === "track") return toggleAt(w);
   const s = spotAt(w);
-  if (!s) return;
+  if (!s) return toggleAt(w, { points: false });
   if (tool === "loco") {
     const i = indexAt(doc.cars, s.at);
     if (i >= 0 && doc.cars[i].kind === "locomotive") return attempt((d) => { const c = d.cars[i]; c.coupler = DIR_NAMES[opp(DIR_NAMES.indexOf(c.coupler || "E"))]; });
@@ -314,6 +325,53 @@ function clickTool(w) {
   }
 }
 
+// What a click on w would change about how the level starts: a switch's
+// leg, a turntable's deck, or a locomotive's coupler. null if nothing's there.
+function toggleTarget(w, { points = true } = {}) {
+  const sw = switchNear(w, points);
+  if (sw) return { kind: "switch", sw };
+  const s = spotAt(w), li = s ? doc.cars.findIndex((c) => c.kind === "locomotive" && same(c.at, s.at)) : -1;
+  if (li >= 0) return { kind: "loco", i: li };
+  const t = tableAt(w, 0.2);
+  if (t >= 0) return { kind: "turntable", i: t };
+  return null;
+}
+
+function toggleAt(w, opts) {
+  const tg = toggleTarget(w, opts);
+  if (!tg) return;
+  if (tg.kind === "loco") return attempt((d) => { const c = d.cars[tg.i]; c.coupler = DIR_NAMES[opp(DIR_NAMES.indexOf(c.coupler || "E"))]; });
+  if (tg.kind === "switch") {
+    const { k, S } = tg.sw;
+    return attempt((d) => {
+      const i = d.switches.findIndex((s) => vkey(...s.at) === k);
+      const cur = i >= 0 ? DIR_NAMES.indexOf(d.switches[i].set) : S.legs[0];
+      const next = S.legs.find((l) => l !== cur);
+      if (i >= 0) d.switches.splice(i, 1);
+      if (next !== S.legs[0]) d.switches.push({ at: S.at, set: DIR_NAMES[next] });
+    });
+  }
+  // a turntable: the deck starts pointing along the next exit round
+  const t = tg.i, T = doc.turntables[t], dirs = deckDirs(T);
+  if (dirs.length < 2) return flash("give the turntable an exit first");
+  const cur = T.deck ?? T.exits[0], next = dirs[(dirs.indexOf(cur) + 1) % dirs.length];
+  // whatever's on the deck turns with it
+  const [ux, uy] = unit(DIR_NAMES.indexOf(cur)), [vx, vy] = unit(DIR_NAMES.indexOf(next));
+  const turn = (at) => {
+    const o = (at[0] - T.at[0]) * ux + (at[1] - T.at[1]) * uy, off = Math.hypot(at[0] - T.at[0] - o * ux, at[1] - T.at[1] - o * uy);
+    return off < 1e-6 && Math.abs(o) < T.length / 2 ? [T.at[0] + o * vx, T.at[1] + o * vy] : null;
+  };
+  return attempt((d) => {
+    d.turntables[t].deck = next;
+    for (const it of [...d.cars, ...d.goals, ...d.plates]) {
+      const to = turn(it.at);
+      if (!to) continue;
+      it.at = to.map((v) => Math.round(v * 1e9) / 1e9);
+      if (it.coupler) { const c = DIR_NAMES.indexOf(it.coupler); it.coupler = c === DIR_NAMES.indexOf(cur) ? next : c === opp(DIR_NAMES.indexOf(cur)) ? DIR_NAMES[opp(DIR_NAMES.indexOf(next))] : it.coupler; }
+    }
+  });
+}
+
 // what a plate's wire is being dragged to
 function wireTarget(w) {
   const sw = switchNear(w);
@@ -336,9 +394,11 @@ const game = createGame($("yard"), {
 
 function drawGrid(ctx, v) {
   if (playing) return;
-  const { sx, sy } = v, L = v.L;
+  const { sx, sy, wx, wy } = v, L = v.L;
+  // every grid point on screen: track can go anywhere you can see
+  const W = canvas.clientWidth, H = canvas.clientHeight;
   ctx.fillStyle = "#3a454c";
-  for (let x = view.minX; x <= view.maxX; x++) for (let y = view.minY; y <= view.maxY; y++) {
+  for (let x = Math.floor(wx(0)); x <= Math.ceil(wx(W)); x++) for (let y = Math.floor(wy(0)); y <= Math.ceil(wy(H)); y++) {
     ctx.beginPath(); ctx.arc(sx(x), sy(y), Math.max(1.5, L * 0.035), 0, Math.PI * 2); ctx.fill();
   }
 }
@@ -358,9 +418,18 @@ function drawOverlay(ctx, v) {
   if (["loco", "car", "goal", "plate"].includes(tool)) {
     for (const s of lay.spots) ring(s, Math.max(3, L * 0.07), "rgba(242,169,59,.35)", 1.5);
   }
-  if (tool === "set") for (const S of lay.switchAt.values()) ring(S.points, L * 0.3, "rgba(242,169,59,.5)", 2, [4, 4]);
+  // things that are allowed but probably not meant, where they are
+  for (const wn of warnings) if (wn.at) ring(wn.at, L * 0.55, C.danger, 2.5, [6, 4]);
   if (!hover) return;
+  // something a click would toggle: a switch, turntable or locomotive
+  const toggle = (tg) => {
+    if (tg.kind === "switch") ring([(tg.sw.S.at[0] + tg.sw.S.points[0]) / 2, (tg.sw.S.at[1] + tg.sw.S.points[1]) / 2], L * 0.45, C.amberHi, 3);
+    else if (tg.kind === "loco") ring(doc.cars[tg.i].at, L * 0.5, C.amberHi, 3);
+    else { const T = doc.turntables[tg.i]; ring(T.at, (T.length / 2 + 0.15) * L, C.amberHi, 3); }
+  };
   if (tool === "track" && !stroke?.erasing) {
+    const tg = !stroke?.laid && toggleTarget(hover);
+    if (tg) { toggle(tg); return; }
     const g = [Math.round(hover[0]), Math.round(hover[1])];
     ring(g, Math.max(5, L * 0.14), C.amberHi, 2.5);
     if (stroke?.last && !stroke.dead) line(stroke.last, g, "rgba(255,192,97,.5)", Math.max(3, L * 0.1));
@@ -381,15 +450,14 @@ function drawOverlay(ctx, v) {
         line([T.at[0] + ux * r, T.at[1] + uy * r], [T.at[0] + ux * (r + 0.8), T.at[1] + uy * (r + 0.8)], T.exits.includes(DIR_NAMES[d]) ? C.danger : C.amberHi, Math.max(3, L * 0.1));
       }
     }
-  } else if (tool === "set") {
-    const sw = switchNear(hover);
-    if (sw) ring(sw.S.points, L * 0.3, C.amberHi, 3);
-    else { const t = tableAt(hover, 0.2); if (t >= 0) ring(doc.turntables[t].at, (doc.turntables[t].length / 2 + 0.15) * L, C.amberHi, 3); }
   } else {
     const s = spotAt(hover);
     if (s) {
       const col = tool === "loco" ? C.amber : tool === "plate" ? C.wire : CAR_COLORS[letter[tool]] || C.filler;
       ring(s.at, L * 0.42, col, 3);
+    } else if (!stroke) {
+      const tg = toggleTarget(hover, { points: false });
+      if (tg) toggle(tg);
     }
   }
   if (stroke?.wire) {
@@ -418,7 +486,8 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
   if (tool === "track") {
-    stroke = { id, last: [Math.round(w[0]), Math.round(w[1])], dead: false };
+    // a drag lays track; a click (on a switch, turntable or locomotive) toggles it
+    stroke = { id, last: [Math.round(w[0]), Math.round(w[1])], dead: false, start: w, laid: false };
     return;
   }
   if (tool === "plate") {
@@ -441,11 +510,13 @@ canvas.addEventListener("pointermove", (e) => {
       const a = stroke.last, b = [a[0] + Math.sign(g[0] - a[0]), a[1] + Math.sign(g[1] - a[1])];
       if (!doc.edges.has(ekey(a, b)) && !attempt((d) => { d.edges.set(ekey(a, b), [a, b]); }, { merge: stroke.id })) { stroke.dead = true; break; }
       stroke.last = b;
+      stroke.laid = true;
     }
   }
 });
 const endStroke = (e) => {
   if (!stroke) return;
+  if (stroke.start && !stroke.laid && !stroke.dead && e && dist(world(e), stroke.start) < 0.3) clickTool(stroke.start);
   if (stroke.wire && e) {
     const w = world(e), to = wireTarget(w), i = stroke.wire.plate;
     if (to) {
@@ -465,6 +536,7 @@ canvas.addEventListener("pointerleave", () => { if (!stroke) hover = null; });
 function setPlaying(on) {
   playing = on;
   $("rail").hidden = on;
+  $("warn").hidden = on || !warnings.length;
   $("play").querySelector("span").textContent = on ? "Edit" : "Play";
   $("play").querySelector("svg").innerHTML = on ? '<path d="M4 20h4L19 9l-4-4L4 16z"/>' : '<path d="M7 4.5v15l12-7.5z"/>';
   $("play").title = on ? "back to editing (Space or Esc)" : "play it, then come back to editing (Space)";
@@ -598,7 +670,7 @@ for (const f of ["name", "blurb"]) {
 }
 window.addEventListener("beforeunload", (e) => { if (snap(doc) !== savedSnap) e.preventDefault(); });
 
-const KEYS = { t: "track", e: "erase", u: "turntable", l: "loco", c: "car", g: "goal", p: "plate", s: "set" };
+const KEYS = { t: "track", e: "erase", u: "turntable", l: "loco", c: "car", g: "goal", p: "plate" };
 window.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key === "s") { e.preventDefault(); save(); return; }

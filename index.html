@@ -487,16 +487,15 @@
     const jointPoint = (j) => walk(yard, state.at[j.a].track, state.at[j.a].s, j.dir, j.dist / 2, state);
 
     // ---------- driving ----------
-    // The pointer sets where you want the locomotivemotive; it heads there along the
+    // The pointer sets where you want the locomotive; it heads there along the
     // track as fast as it can, up to VMAX. Cars it pushes but isn't coupled to
     // keep its speed when it backs off, and roll on until friction stops them,
     // like a wooden toy train given a shove.
     const VMAX = 10;      // the locomotive's top speed, car lengths per second
-    const FRICTION = 12;  // how fast a rolling car slows, car lengths per second²
+    const FRICTION = 18;  // how fast a rolling car slows, car lengths per second²
     const FOLLOW = 0.04;  // the locomotive closes on the pointer over about this many seconds
 
     const locoIds = () => cars.map((c, i) => (c.loco ? i : -1)).filter((i) => i >= 0);
-    const otherLocos = (loco) => new Set(locoIds().filter((i) => i !== loco));
     // a car and everything coupled to it
     function consistOf(c0) {
       const out = new Set(), stack = [c0];
@@ -533,7 +532,8 @@
         const before = clone(state);
         // ease toward the pointer (pointer events come in bursts), never faster than VMAX
         const want = best.proj < 0.02 ? best.proj : best.proj * Math.min(1, dt / FOLLOW);
-        const r = drive(yard, state, loco, best.d, Math.min(want, VMAX * dt), otherLocos(loco));
+        // anything in the way gets shoved, another locomotive included
+        const r = drive(yard, state, loco, best.d, Math.min(want, VMAX * dt));
         noteEvents(r.events);
         // its speed, averaged over a few frames: what it hands on to cars it shoves
         drag.v = (drag.v ?? 0) + (r.moved / dt - (drag.v ?? 0)) * Math.min(1, dt / 0.08);
@@ -557,13 +557,13 @@
     // cars rolling on their own, slowing with friction
     function stepRolling(dt) {
       if (!rolling.size || dt <= 0) return;
-      const locos = new Set(locoIds());
-      const onLoco = new Set();
-      for (const l of locos) for (const c of consistOf(l)) onLoco.add(c);
+      // the locomotive you're driving (and what's coupled to it) goes where you
+      // take it; anything else, other locomotives included, rolls like a car
+      const held = drag ? consistOf(drag.loco) : new Set();
       for (const [c, v] of [...rolling]) {
         if (!rolling.has(c)) continue;
-        if (onLoco.has(c)) { rolling.delete(c); continue; }
-        const r = coast(yard, state, c, v.dir, v.speed * dt, locos);
+        if (held.has(c)) { rolling.delete(c); continue; }
+        const r = coast(yard, state, c, v.dir, v.speed * dt, drag ? new Set([drag.loco]) : null);
         noteEvents(r.events);
         // anything it runs into shares its momentum
         const mass = r.members.length;

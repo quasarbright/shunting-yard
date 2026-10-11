@@ -153,8 +153,10 @@ function throughPoints(yard, state, front) {
 // Drive `loco` up to `amount` car lengths in direction d. Moves the cars in
 // place. Returns { moved, dir (the loco's travel direction now), stop,
 // members (the cars that moved, front first, with their travel directions),
-// events (plates that went off, see updatePlates) }. Cars in `fixed` (other
-// locomotives, which have their brakes on) can't be pushed.
+// events (plates that went off, see updatePlates) }. Anything in the way gets
+// pushed, another locomotive included, except cars in `fixed` (a car that's
+// held where it is, like the locomotive you're driving when something rolls
+// into it).
 export function drive(yard, state, loco, d, amount, fixed = null) {
   return inSteps(yard, state, (amt, dir) => moveChain(yard, state, loco, dir, amt, true, fixed), d, amount);
 }

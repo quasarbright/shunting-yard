@@ -27,9 +27,8 @@ export function solve(level, { maxStates = 2e6 } = {}) {
       const k0 = key(st);
       const moves = [];
       for (const loco of locos) for (const d of [1, -1]) {
-        const fixed = new Set(locos.filter((l) => l !== loco));
         const n = M.clone(st);
-        const r = M.drive(yard, n, loco, d, STEP, fixed);
+        const r = M.drive(yard, n, loco, d, STEP);
         if (r.moved > STEP - 1e-6) moves.push([n, { drive: loco, d }]);
       }
       yard.switches.forEach((S, k) => {

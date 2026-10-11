@@ -815,16 +815,30 @@ export function createGame(canvas, opts = {}) {
         ctx.lineCap = "round"; ctx.lineWidth = width; ctx.strokeStyle = color;
         ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(q.x), sy(q.y)); ctx.stroke();
       };
-      // in reach, not yet coupled: a line between the two
-      for (const k of links) if (!k.on) line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04)), k.hot ? C.amberHi : C.amber);
-      // every coupler's circle
+      // in reach, not yet coupled: a line between the two, with a soft glow
+      // that swells and fades so it catches the eye
+      const pulse = 0.5 - 0.5 * Math.cos(now / 260);
+      for (const k of links) if (!k.on) {
+        if (interactive && !k.hot) {
+          ctx.globalAlpha = 0.08 + 0.32 * pulse;
+          line(k.p, k.q, L * (0.16 + 0.3 * pulse), C.amberHi);
+          ctx.globalAlpha = 1;
+        }
+        line(k.p, k.q, Math.max(2, L * (k.hot ? 0.06 : 0.04)), k.hot ? C.amberHi : C.amber);
+      }
+      // every coupler's circle; the two either side of a gap you could couple
+      // across pulse amber with its glow
+      const ready = new Set();
+      if (interactive) for (const k of links) if (!k.on) { ready.add(`${k.j.a}:${k.j.dir}`); ready.add(`${k.j.b}:${dirToward(k.j.b, k.j.a)}`); }
       cars.forEach((car, c) => {
         for (const side of [1, -1]) {
           if (car.loco && state.face[c] !== side) continue;
           const e = end(c, side);
           ctx.beginPath(); ctx.arc(sx(e.x), sy(e.y), R, 0, Math.PI * 2);
           ctx.fillStyle = C.bg; ctx.fill();
-          ctx.lineWidth = Math.max(1.5, L * 0.03); ctx.strokeStyle = C.steel; ctx.stroke();
+          ctx.lineWidth = Math.max(1.5, L * 0.03);
+          ctx.strokeStyle = ready.has(`${c}:${side}`) && pulse > 0.5 ? C.amberHi : C.steel;
+          ctx.stroke();
         }
       });
       // coupled: a solid link over both circles

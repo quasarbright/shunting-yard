@@ -1,0 +1,23 @@
+{
+  "name": "Merry-go-round",
+  "blurb": "The turntable turns when a car reaches the far end of it.",
+  "track": [
+    [[0, 5], [3, 5]],
+    [[7, 5], [10, 5]],
+    [[5, 0], [5, 3]],
+    [[5, 7], [5, 10]]
+  ],
+  "turntables": [
+    { "at": [5, 5], "length": 3, "exits": ["E", "S", "W", "N"], "deck": "E" }
+  ],
+  "plates": [
+    { "at": [6, 5], "wires": [[5, 5]] }
+  ],
+  "cars": [
+    { "at": [1.5, 5], "kind": "locomotive", "coupler": "E" },
+    { "at": [2.5, 5], "name": "A" }
+  ],
+  "goals": [
+    { "at": [5, 0.5], "name": "A" }
+  ]
+}

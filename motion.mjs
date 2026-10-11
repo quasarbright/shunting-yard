@@ -31,14 +31,6 @@ export function toggleCoupling(state, i, j) {
   if (state.coupled.has(k)) state.coupled.delete(k); else state.coupled.add(k);
 }
 
-export function fromSlots(yard, { pos, sw, tt, face, coupled }) {
-  const state = {
-    at: pos.map((p) => ({ track: yard.slots[p].track, s: yard.slots[p].s })),
-    sw: sw.slice(), tt: (tt || []).slice(), face: { ...(face || {}) }, coupled: new Set(coupled),
-  };
-  state.plateOn = yard.plates.map((pl) => plateCovered(yard, state, pl));
-  return state;
-}
 export function clone(state) {
   return {
     at: state.at.map((p) => ({ ...p })), sw: state.sw.slice(), tt: state.tt.slice(), face: { ...state.face },
@@ -52,10 +44,13 @@ export function scan(yard, state, track, s, dir, maxDist, skip = null) {
   let dist = 0;
   for (let guard = 0; guard < 100; guard++) {
     let best = null;
+    // on the first track, only what's ahead; past a node, a car right at the
+    // node counts too
+    const min = guard === 0 ? EPS : -EPS;
     state.at.forEach((p, c) => {
       if (p.track !== track || (skip && skip.has(c))) return;
       const ds = (p.s - s) * dir;
-      if (ds > EPS && dist + ds <= maxDist + EPS && (!best || ds < best.ds)) best = { c, ds };
+      if (ds > min && dist + ds <= maxDist + EPS && (!best || ds < best.ds)) best = { c, ds: Math.max(0, ds) };
     });
     if (best) return { car: best.c, dist: dist + best.ds, dir };
     const t = yard.tracks[track];
@@ -344,16 +339,6 @@ export function updatePlates(yard, state) {
   return events;
 }
 
-// Where each goal car belongs: packed against the goal's end of its track,
-// one car length apart, in the order listed (left to right along the track).
-export function goalSpots(yard, g) {
-  const t = yard.tracks[g.track], n = g.cars.length;
-  return g.cars.map((car, k) => {
-    const idx = t.from === g.end ? k : n - 1 - k; // how many cars in from the end
-    return { car, s: t.from === g.end ? 0.5 + idx : t.len - 0.5 - idx };
-  });
-}
-
 // How long a car (and a goal marker) is drawn, in car lengths.
 export const BODY = 0.84;
 
@@ -364,8 +349,8 @@ export function atSpot(state, track, car, s) {
   return p.track === track && Math.abs(p.s - s) < BODY;
 }
 
-// The goal: every goal car touching its spot. Where the other cars are
-// doesn't matter.
-export function goalMet(yard, cars, goals, state) {
-  return goals.every((g) => goalSpots(yard, g).every(({ car, s }) => atSpot(state, g.track, car, s)));
+// The goal: every goal car touching its spot ({ car, track, s }). Where the
+// other cars are doesn't matter.
+export function goalMet(goals, state) {
+  return goals.length > 0 && goals.every((g) => atSpot(state, g.track, g.car, g.s));
 }

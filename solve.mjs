@@ -11,14 +11,13 @@ import { loadLevel } from "./setup.mjs";
 import * as M from "./motion.mjs";
 
 export function solve(level, { maxStates = 2e6 } = {}) {
-  const { yard, cars, goals, state: s0 } = loadLevel(level);
+  const { yard, cars, goals, state: start } = loadLevel(level);
   const STEP = level.solveStep ?? 1;
-  const start = M.fromSlots(yard, s0);
   const locos = cars.map((c, i) => (c.loco ? i : -1)).filter((i) => i >= 0);
   const key = (st) => st.at.map((p) => `${p.track}:${Math.round(p.s * 1000)}`).join(",")
     + "|" + st.sw.join("") + "|" + st.tt.join(",") + "|" + Object.values(st.face).join(",")
     + "|" + [...st.coupled].sort().join(";") + "|" + st.plateOn.map(Number).join("");
-  if (M.goalMet(yard, cars, goals, start)) return { steps: [], states: 1 };
+  if (M.goalMet(goals, start)) return { steps: [], states: 1 };
   const parent = new Map([[key(start), null]]);
   let frontier = [start];
   while (frontier.length) {
@@ -30,6 +29,16 @@ export function solve(level, { maxStates = 2e6 } = {}) {
         const n = M.clone(st);
         const r = M.drive(yard, n, loco, d, STEP);
         if (r.moved > STEP - 1e-6) moves.push([n, { drive: loco, d }]);
+        // or just up to the next car, when that's less than a step away
+        // (cars on a diagonal sit further apart than a step)
+        const front = M.group(yard, st, loco, d)[0], fp = st.at[front.c];
+        const skip = new Set(M.group(yard, st, loco, d).map((m) => m.c));
+        const ahead = M.scan(yard, st, fp.track, fp.s, front.dir, STEP + 1, skip);
+        const gap = ahead ? ahead.dist - 1 : Infinity;
+        if (gap > 1e-6 && gap < STEP - 1e-6) {
+          const m = M.clone(st);
+          if (M.drive(yard, m, loco, d, gap).moved > gap - 1e-6) moves.push([m, { drive: loco, d }]);
+        }
       }
       yard.switches.forEach((S, k) => {
         if (!S.lever) return;
@@ -51,7 +60,7 @@ export function solve(level, { maxStates = 2e6 } = {}) {
         const k = key(n);
         if (parent.has(k)) continue;
         parent.set(k, { from: k0, how });
-        if (M.goalMet(yard, cars, goals, n)) {
+        if (M.goalMet(goals, n)) {
           const steps = []; let kk = k;
           while (parent.get(kk)) { const p = parent.get(kk); steps.push(p.how); kk = p.from; }
           return { steps: steps.reverse(), states: parent.size };

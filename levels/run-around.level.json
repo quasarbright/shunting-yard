@@ -1,0 +1,19 @@
+{
+  "name": "Run around",
+  "blurb": "Get the locomotive to the other end of its train.",
+  "track": [
+    [[0, 0], [15, 0]],
+    [[6, 0], [7, -1], [9, -1], [10, 0]]
+  ],
+  "cars": [
+    { "at": [0.5, 0], "kind": "locomotive", "coupler": "E" },
+    { "at": [1.5, 0], "name": "A" },
+    { "at": [2.5, 0], "name": "B" },
+    { "at": [3.5, 0], "name": "C" }
+  ],
+  "goals": [
+    { "at": [0.5, 0], "name": "A" },
+    { "at": [1.5, 0], "name": "B" },
+    { "at": [2.5, 0], "name": "C" }
+  ]
+}

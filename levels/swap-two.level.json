@@ -1,0 +1,17 @@
+{
+  "name": "Swap two",
+  "blurb": "Swap A and B.",
+  "track": [
+    [[0, 0], [8, 0]],
+    [[5, 0], [6, 1], [9, 1]]
+  ],
+  "cars": [
+    { "at": [0.5, 0], "kind": "locomotive", "coupler": "E" },
+    { "at": [6.5, 0], "name": "A" },
+    { "at": [7.5, 0], "name": "B" }
+  ],
+  "goals": [
+    { "at": [6.5, 0], "name": "B" },
+    { "at": [7.5, 0], "name": "A" }
+  ]
+}

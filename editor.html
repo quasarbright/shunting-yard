@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shunting Yard editor</title>
+
+  <link rel="stylesheet" href="https://quasarbright.github.io/sketches/shared/cohesion.css" />
+  <script type="module" src="https://quasarbright.github.io/sketches/shared/cohesion.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Barlow:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* ---------- top bar: which level, saving, playing ---------- */
+    .ed-bar {
+      position: fixed; top: 12px; left: 12px; right: 12px; z-index: 5;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .ed-bar .st-btn { padding: 9px 14px; border-radius: 12px; font-size: .92rem; box-shadow: 0 3px 0 var(--btn-lip), 0 6px 14px rgba(0,0,0,.3); }
+    .ed-bar .st-btn svg.st-ico { width: 18px; height: 18px; }
+    .ed-fields { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; max-width: 560px; }
+    .ed-fields input {
+      background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--text);
+      font: 400 1.15rem var(--font-display); padding: 2px 4px; min-width: 0; outline: none;
+    }
+    .ed-fields input.ed-blurb { font: 600 .92rem var(--font-ui); color: var(--muted); }
+    .ed-fields input:hover { border-bottom-color: var(--border); }
+    .ed-fields input:focus { border-bottom-color: var(--accent); }
+    .ed-where { font: 700 .75rem var(--font-ui); letter-spacing: .04em; color: var(--faint); padding: 0 4px; white-space: nowrap; }
+    .ed-where b { color: var(--muted); }
+    .ed-spacer { flex: 1; }
+    .ed-saved { font: 700 .8rem var(--font-ui); color: var(--faint); white-space: nowrap; }
+    .ed-saved.is-dirty { color: var(--accent); }
+
+    /* ---------- tools ---------- */
+    .tool.is-active { background: var(--accent); color: var(--on-accent); }
+    .ed-swatch { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font: 600 .8rem var(--font-mono); color: #121619; }
+    .tool.is-active .ed-swatch { box-shadow: 0 0 0 2px var(--on-accent); }
+    .ed-palette .tool { width: 36px; height: 36px; }
+
+    /* a line about the tool, or why something can't go there */
+    .ed-hint {
+      position: fixed; left: 50%; bottom: 42px; transform: translateX(-50%); z-index: 5;
+      font-weight: 600; font-size: .92rem; color: var(--muted); background: var(--panel);
+      padding: 8px 16px; border-radius: 12px; box-shadow: 0 4px 0 var(--lip), 0 8px 18px rgba(0,0,0,.35);
+      max-width: calc(100vw - 32px); text-align: center; transition: color .15s;
+    }
+    .ed-hint.is-bad { color: var(--on-accent); background: #e0556b; }
+    .ed-hint.is-good { color: var(--on-accent); background: var(--accent-hi); }
+
+    /* ---------- open / new ---------- */
+    .ed-modal {
+      position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;
+      background: rgba(8,10,12,.6);
+    }
+    .ed-sheet {
+      width: min(760px, 100%); max-height: calc(100vh - 32px); overflow-y: auto;
+      background: var(--panel); border-radius: 22px; padding: 22px 22px 18px;
+      box-shadow: 0 6px 0 var(--lip), 0 24px 60px rgba(0,0,0,.6);
+    }
+    .ed-sheet h2 { margin: 0 0 4px; font: 400 1.4rem var(--font-display); color: var(--accent); }
+    .ed-sheet h3 { margin: 18px 0 8px; font: 800 .75rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+    .ed-sheet p { margin: 0 0 8px; color: var(--muted); font-size: .9rem; }
+    .ed-list { display: flex; flex-direction: column; gap: 6px; min-height: 40px; border-radius: 12px; }
+    .ed-list.is-target { outline: 2px dashed var(--accent); outline-offset: 4px; }
+    .ed-row {
+      display: grid; grid-template-columns: 26px 120px 1fr auto; align-items: center; gap: 12px;
+      background: var(--panel-2); border-radius: 12px; padding: 6px 10px; cursor: grab;
+    }
+    .ed-row.is-current { box-shadow: inset 0 0 0 2px var(--accent); }
+    .ed-row.is-dragging { opacity: .4; }
+    .ed-row .ed-num { font: 400 .8rem var(--font-display); color: var(--faint); text-align: right; }
+    .ed-row svg.ed-thumb { width: 120px; height: 40px; }
+    .ed-row .ed-name { font: 400 1rem var(--font-display); color: var(--text); }
+    .ed-row .ed-id { font: 400 .75rem var(--font-mono); color: var(--faint); }
+    .ed-row .st-btn { padding: 6px 12px; font-size: .82rem; border-radius: 10px; box-shadow: 0 3px 0 var(--btn-lip); }
+    .ed-new { display: flex; gap: 10px; margin-top: 6px; }
+    .ed-new input {
+      flex: 1; background: var(--bg); border: 2px solid var(--border); border-radius: 12px; color: var(--text);
+      font: 600 1rem var(--font-ui); padding: 9px 12px; outline: none;
+    }
+    .ed-new input:focus { border-color: var(--accent); }
+    .ed-sheet-foot { display: flex; justify-content: flex-end; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <canvas id="yard"></canvas>
+
+  <div class="ed-bar" id="bar">
+    <button class="st-btn" id="open" title="open a level, make a new one, or change which levels are in the game (O)">
+      <svg class="st-ico" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Levels
+    </button>
+    <div class="ed-fields">
+      <input id="name" spellcheck="false" title="the level's name" placeholder="Level name" />
+      <input id="blurb" class="ed-blurb" spellcheck="false" title="the line under the name in the game" placeholder="What to do, in a line" />
+    </div>
+    <span class="ed-where" id="where"></span>
+    <div class="ed-spacer"></div>
+    <span class="ed-saved" id="saved"></span>
+    <button class="st-btn" id="save" title="save to levels/ (⌘S)">Save</button>
+    <button class="st-btn is-amber" id="play" title="play it, then come back to editing (Space)">
+      <svg class="st-ico" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg><span>Play</span>
+    </button>
+  </div>
+
+  <div class="tool-rail" id="rail">
+    <div class="tool-group" id="tools">
+      <button class="tool is-active" data-tool="track" title="Track (T): drag across the grid to lay track. Corners curve on their own; a branch off a track makes a switch.">
+        <svg viewBox="0 0 24 24"><path d="M3 18h6l6-12h6"/><path d="M5 15.5v5M9.5 15.5v5M14 3.5v5M19 3.5v5"/></svg>
+      </button>
+      <button class="tool" data-tool="erase" title="Erase (E): click or drag over track, cars, goals, plates or a turntable to remove them. Right-drag erases with any tool.">
+        <svg viewBox="0 0 24 24"><path d="M20 20H8.5L4 15.5a2 2 0 0 1 0-2.8L12.7 4a2 2 0 0 1 2.8 0l4.3 4.3a2 2 0 0 1 0 2.8L11 20"/><path d="m8 9 7 7"/></svg>
+      </button>
+      <button class="tool" data-tool="turntable" title="Turntable (U): click to place one. Click its middle to make it longer; click just outside its rim to add or remove an exit that way.">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><path d="M8 8l8 8M1.5 12h3.5M19 12h3.5M12 1.5V5"/></svg>
+      </button>
+      <button class="tool" data-tool="loco" title="Locomotive (L): click a spot on the track to put a locomotive there; click one to turn its coupler round.">
+        <svg viewBox="0 0 24 24"><rect x="3" y="8" width="15" height="8" rx="2"/><path d="M6 10.5h3v3H6zM18 12h3"/></svg>
+      </button>
+      <button class="tool" data-tool="car" title="Car (C): pick a letter (1–9), then click a spot. Each letter is one car; gray cars can be as many as you like.">
+        <svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="8" rx="2"/><path d="M2 12h2M20 12h2"/></svg>
+      </button>
+      <button class="tool" data-tool="goal" title="Goal (G): pick a letter (1–8), then click the spot where that car has to end up.">
+        <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2.5" stroke-dasharray="3 2.2"/></svg>
+      </button>
+      <button class="tool" data-tool="plate" title="Plate (P): click a spot to put a pressure plate there; click one to remove it. Drag from a plate to a switch or turntable to wire it (drag again to unwire).">
+        <svg viewBox="0 0 24 24"><rect x="7" y="5" width="10" height="14" rx="2"/><path d="M17 12c3 0 4-4 4-7" stroke-dasharray="2 2"/></svg>
+      </button>
+      <button class="tool" data-tool="set" title="Set (S): click a switch to choose which way it starts; click a turntable to choose where it starts pointing.">
+        <svg viewBox="0 0 24 24"><path d="M6 20h12"/><path d="M12 20 16 7"/><circle cx="16.5" cy="5.5" r="2.5"/></svg>
+      </button>
+    </div>
+    <div class="tool-group ed-palette" id="palette" hidden></div>
+    <div class="tool-group">
+      <button class="tool" id="undo" title="Undo (⌘Z)">
+        <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
+      <button class="tool" id="redo" title="Redo (⇧⌘Z)">
+        <svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="ed-hint" id="hint"></div>
+  <div class="st-nudge is-gone" id="nudge"></div>
+
+  <div class="ed-modal" id="levels" hidden>
+    <div class="ed-sheet" role="dialog" aria-labelledby="levelsTitle">
+      <h2 id="levelsTitle">Levels</h2>
+      <p>Click a level to open it. Drag to change the order, or to move a level in or out of the game.</p>
+      <h3>In the game</h3>
+      <div class="ed-list" id="inGame" data-list="game"></div>
+      <h3>Drafts: not in the game</h3>
+      <div class="ed-list" id="drafts" data-list="drafts"></div>
+      <h3>New level</h3>
+      <div class="ed-new">
+        <input id="newName" placeholder="Its name" spellcheck="false" />
+        <button class="st-btn is-amber" id="create">Make it</button>
+      </div>
+      <div class="ed-sheet-foot"><button class="st-btn" id="closeLevels">Close</button></div>
+    </div>
+  </div>
+
+  <mike-footer overlay></mike-footer>
+  <script type="module" src="editor.mjs"></script>
+</body>
+</html>

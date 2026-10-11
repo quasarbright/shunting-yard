@@ -1,0 +1,18 @@
+{
+  "name": "Turn around",
+  "blurb": "Bring A across. The locomotive only couples at one end.",
+  "track": [
+    [[0, 0], [2, 0]],
+    [[4, 0], [7, 0]]
+  ],
+  "turntables": [
+    { "at": [3, 0], "length": 1, "exits": ["W", "E"], "deck": "E" }
+  ],
+  "cars": [
+    { "at": [1.5, 0], "name": "A" },
+    { "at": [4.5, 0], "kind": "locomotive", "coupler": "E" }
+  ],
+  "goals": [
+    { "at": [4.5, 0], "name": "A" }
+  ]
+}

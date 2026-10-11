@@ -6,11 +6,8 @@
 // two legs, one leg selected at a time), or one end of a turntable: either the
 // rim, where an exit track meets the pit, or an end of the turntable's deck.
 //
-// Each track is cut into car-length slots, used for laying out a level's cars
-// and goals. Slot centers are exactly one car length apart along the track
-// everywhere, including across nodes, so every track between two non-buffer
-// nodes must be a whole number of car lengths long; a track ending at a
-// buffer leaves any spare length at the buffer.
+// Levels are laid out on a grid (see grid.mjs), which works out the nodes
+// and the shape of each track; this file only needs the result.
 //
 // A turntable is a deck (a straight track `length` cars long) that turns in a
 // round pit, with exit tracks meeting the rim at fixed angles. It stops
@@ -23,10 +20,11 @@
 //   nodes: { id: [x, y] },
 //   tracks: [{ id, from, to, via?: [[x, y], ...] }],
 //   switches: { nodeId: { trunk: trackId, legs: [trackId, trackId] } },
-//   turntables?: { id: { center: [x, y], length, exits: [degrees, ...], start?: stopIndex } },
+//   turntables?: { id: { center: [x, y], length, exits: [degrees, ...], deck?: degrees } },
 //     rim nodes are named `${id}.${exitIndex}` (positions filled in here);
-//     the deck is the track `${id}.deck`, from node `${id}.a` to `${id}.b`
-//   plates?: [{ track, slot, wires: [switchNodeId | turntableId, ...] }],
+//     the deck is the track `${id}.deck`, from node `${id}.a` to `${id}.b`,
+//     and starts with its `a` end pointing at `deck` (the first exit if not given)
+//   plates?: [{ track, s, wires: [switchNodeId | turntableId, ...] }],
 // }
 export function buildYard(def) {
   const nodes = {};
@@ -56,10 +54,14 @@ export function buildYard(def) {
     nodes[`${id}.b`] = { id: `${id}.b`, x: cx - r, y: cy, tracks: [], turntable: id, deckEnd: "b" };
     tracksDef.push({ id: `${id}.deck`, from: `${id}.a`, to: `${id}.b` });
     turntableIndex[id] = turntables.length;
-    turntables.push({ id, center: [cx, cy], r, length: tt.length, deck: `${id}.deck`, exits, stops, start: tt.start ?? 0 });
+    const want = tt.deck != null ? (tt.deck * Math.PI) / 180 : exits.length ? exits[0].angle : 0;
+    let start = stops.findIndex((s) => Math.abs(Math.sin((s.angle - norm(want)) / 2)) < 1e-6);
+    if (start < 0) start = 0;
+    if (!stops.length) stops.push({ angle: norm(want), a: null, b: null });
+    turntables.push({ id, center: [cx, cy], r, length: tt.length, deck: `${id}.deck`, exits, stops, start });
   }
 
-  const tracks = {}, slots = [];
+  const tracks = {};
   for (const t of tracksDef) {
     nodes[t.from].tracks.push(t.id);
     nodes[t.to].tracks.push(t.id);
@@ -70,21 +72,7 @@ export function buildYard(def) {
     const pts = [[nodes[t.from].x, nodes[t.from].y], ...(t.via || []), [nodes[t.to].x, nodes[t.to].y]];
     const cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-    const len = cum[cum.length - 1];
-    const bufFrom = kind(t.from) === "buffer", bufTo = kind(t.to) === "buffer";
-    const n = !bufFrom && !bufTo ? Math.round(len) : Math.floor(len + 1e-3);
-    if (n < 1) throw new Error(`track ${t.id} is shorter than a car`);
-    if (!bufFrom && !bufTo && Math.abs(len - n) > 1e-3) throw new Error(`track ${t.id} is ${len.toFixed(3)} long; it runs between switches, so it must be a whole number of cars`);
-    // where slot 0's center sits: packed against whichever end isn't a buffer
-    const first = bufFrom && !bufTo ? len - n + 0.5 : bufFrom && bufTo ? (len - n) / 2 + 0.5 : 0.5;
-    const track = { id: t.id, from: t.from, to: t.to, pts, cum, len, slots: [] };
-    for (let i = 0; i < n; i++) {
-      const s = first + i;
-      const p = pointOnTrack(track, s);
-      track.slots.push(slots.length);
-      slots.push({ id: slots.length, track: t.id, i, s, x: p.x, y: p.y, ang: p.ang });
-    }
-    tracks[t.id] = track;
+    tracks[t.id] = { id: t.id, from: t.from, to: t.to, pts, cum, len: cum[cum.length - 1] };
   }
   const switchIds = Object.keys(def.switches || {});
   const switches = switchIds.map((id) => ({ id, ...def.switches[id] }));
@@ -94,22 +82,11 @@ export function buildYard(def) {
   }
   const switchIndex = Object.fromEntries(switchIds.map((id, i) => [id, i]));
 
-  // The two legs of a switch start out side by side, so a car parked on the
-  // first slot of one leg is in the way of a car on the first slot of the
-  // other (railways call this fouling). slot.fouls lists the slots it clashes with.
-  for (const sl of slots) sl.fouls = [];
-  const endOf = (tid, nid) => { const t = tracks[tid]; return t.from === nid ? t.slots[0] : t.slots[t.slots.length - 1]; };
-  for (const S of switches) {
-    const [a, b] = S.legs.map((l) => endOf(l, S.id));
-    slots[a].fouls.push(b); slots[b].fouls.push(a);
-  }
-
   // pressure plates, and which switches and turntables they drive (those get no lever)
   const plates = (def.plates || []).map((p) => {
-    const t = tracks[p.track];
     const wires = p.wires.map((w) => (switchIndex[w] != null ? { switch: switchIndex[w] } : turntableIndex[w] != null ? { turntable: turntableIndex[w] } : null));
     if (wires.includes(null)) throw new Error(`plate on ${p.track} is wired to something that isn't a switch or turntable`);
-    return { track: p.track, s: slots[t.slots[p.slot]].s, wires };
+    return { track: p.track, s: p.s, wires };
   });
   for (const S of switches) S.lever = !plates.some((p) => p.wires.some((w) => w.switch === switchIndex[S.id]));
   for (const [k, T] of turntables.entries()) T.manual = !plates.some((p) => p.wires.some((w) => w.turntable === k));
@@ -119,7 +96,8 @@ export function buildYard(def) {
   const grow = (x, y) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); };
   for (const t of Object.values(tracks)) for (const [x, y] of t.pts) grow(x, y);
   for (const T of turntables) { grow(T.center[0] - T.r, T.center[1] - T.r); grow(T.center[0] + T.r, T.center[1] + T.r); }
-  const yard = { nodes, tracks, slots, switches, switchIndex, turntables, turntableIndex, plates, bounds: { minX, minY, maxX, maxY } };
+  if (minX > maxX) minX = minY = maxX = maxY = 0; // no track yet
+  const yard = { nodes, tracks, switches, switchIndex, turntables, turntableIndex, plates, bounds: { minX, minY, maxX, maxY } };
   for (let k = 0; k < turntables.length; k++) setDeckAngle(yard, k, turntables[k].stops[turntables[k].start].angle);
   return yard;
 }
@@ -175,12 +153,6 @@ export function nextTrack(yard, trackId, nodeId, st) {
   return { track: next, dir: yard.tracks[next].from === nodeId ? 1 : -1 };
 }
 
-// slot at a track's end next to a node
-export function endSlot(yard, trackId, nodeId) {
-  const t = yard.tracks[trackId];
-  return t.from === nodeId ? t.slots[0] : t.slots[t.slots.length - 1];
-}
-
 // Roll `dist` along the track from (track, s) heading dir, following switches
 // and turntables. Stops short where the line ends.
 export function walk(yard, trackId, s, dir, dist, st) {
@@ -198,9 +170,17 @@ export function walk(yard, trackId, s, dir, dist, st) {
   return { track: trackId, s, dir, ...pointOnTrack(yard.tracks[trackId], s) };
 }
 
-// Goal spots in slot terms (for laying out levels): `goal.cars` listed in the
-// track's from→to order, packed against the `end` node.
-export function goalSlots(yard, goal) {
-  const t = yard.tracks[goal.track], n = goal.cars.length;
-  return t.from === goal.end ? t.slots.slice(0, n) : t.slots.slice(t.slots.length - n);
+// The point on any track nearest (x, y): { track, s, dist }.
+export function locate(yard, x, y) {
+  let best = null;
+  for (const t of Object.values(yard.tracks)) {
+    for (let i = 1; i < t.pts.length; i++) {
+      const [x0, y0] = t.pts[i - 1], [x1, y1] = t.pts[i];
+      const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy;
+      const f = l2 ? Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / l2)) : 0;
+      const dist = Math.hypot(x0 + dx * f - x, y0 + dy * f - y);
+      if (!best || dist < best.dist - 1e-9) best = { track: t.id, s: t.cum[i - 1] + f * (t.cum[i] - t.cum[i - 1]), dist };
+    }
+  }
+  return best;
 }

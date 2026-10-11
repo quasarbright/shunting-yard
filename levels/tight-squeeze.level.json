@@ -1,0 +1,24 @@
+{
+  "name": "Tight squeeze",
+  "blurb": "Line up A B C D at their markers. There's barely any room.",
+  "track": [
+    [[0, 0], [8, 0]],
+    [[4, 0], [5, 1], [8, 1]],
+    [[6, 1], [7, 2], [9, 2]]
+  ],
+  "cars": [
+    { "at": [0.5, 0], "kind": "locomotive", "coupler": "E" },
+    { "at": [4.5, 0] },
+    { "at": [5.5, 0], "name": "C" },
+    { "at": [6.5, 0] },
+    { "at": [7.5, 0], "name": "A" },
+    { "at": [6.5, 1], "name": "D" },
+    { "at": [7.5, 1], "name": "B" }
+  ],
+  "goals": [
+    { "at": [4.5, 0], "name": "A" },
+    { "at": [5.5, 0], "name": "B" },
+    { "at": [6.5, 0], "name": "C" },
+    { "at": [7.5, 0], "name": "D" }
+  ]
+}

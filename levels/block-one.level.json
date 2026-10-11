@@ -1,0 +1,19 @@
+{
+  "name": "Block one",
+  "blurb": "One plate, two switches. Get A to the middle siding.",
+  "track": [
+    [[0, 0], [9, 0]],
+    [[6, 0], [7, 1], [11, 1]],
+    [[8, 1], [9, 2], [12, 2]]
+  ],
+  "plates": [
+    { "at": [1.5, 0], "wires": [[6, 0], [8, 1]] }
+  ],
+  "cars": [
+    { "at": [0.5, 0], "kind": "locomotive", "coupler": "E" },
+    { "at": [3.5, 0], "name": "A" }
+  ],
+  "goals": [
+    { "at": [10.5, 1], "name": "A" }
+  ]
+}

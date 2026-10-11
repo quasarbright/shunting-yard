@@ -1,0 +1,18 @@
+{
+  "name": "Keep it covered",
+  "blurb": "Move A to the other siding.",
+  "track": [
+    [[0, 0], [9, 0]],
+    [[6, 0], [7, 1], [10, 1]]
+  ],
+  "plates": [
+    { "at": [3.5, 0], "wires": [[6, 0]] }
+  ],
+  "cars": [
+    { "at": [0.5, 0], "kind": "locomotive", "coupler": "E" },
+    { "at": [8.5, 0], "name": "A" }
+  ],
+  "goals": [
+    { "at": [9.5, 1], "name": "A" }
+  ]
+}

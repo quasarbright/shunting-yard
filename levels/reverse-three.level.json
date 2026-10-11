@@ -1,0 +1,19 @@
+{
+  "name": "Reverse three",
+  "blurb": "Turn the train around.",
+  "track": [
+    [[0, 0], [10, 0]],
+    [[6, 0], [7, 1], [10, 1]]
+  ],
+  "cars": [
+    { "at": [0.5, 0], "kind": "locomotive", "coupler": "E" },
+    { "at": [7.5, 0], "name": "A" },
+    { "at": [8.5, 0], "name": "B" },
+    { "at": [9.5, 0], "name": "C" }
+  ],
+  "goals": [
+    { "at": [7.5, 0], "name": "C" },
+    { "at": [8.5, 0], "name": "B" },
+    { "at": [9.5, 0], "name": "A" }
+  ]
+}

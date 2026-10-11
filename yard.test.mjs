@@ -1,44 +1,14 @@
-// Track geometry and connections.
+// Track geometry and connections, and laying levels out on the grid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LEVELS, ladder } from "./levels.mjs";
+import { readFileSync } from "node:fs";
 import { loadLevel } from "./setup.mjs";
-import { buildYard, walk, nextTrack } from "./yard.mjs";
+import { layoutOf, edgesOf, pathsOf } from "./grid.mjs";
+import { buildYard, nextTrack, locate } from "./yard.mjs";
 
-test("tracks are cut into whole car lengths", () => {
-  const y = buildYard(ladder(3, [5, 3, 3]));
-  assert.equal(y.tracks.head.slots.length, 3);
-  assert.equal(y.tracks.s1.slots.length, 5);
-  assert.equal(y.tracks.s3.slots.length, 3);
-});
-
-// every way the switches and turntables can be set in a level
-function* settings(yard) {
-  const sizes = [...yard.switches.map(() => 2), ...yard.turntables.map((T) => T.stops.length)];
-  const total = sizes.reduce((a, b) => a * b, 1);
-  for (let m = 0; m < Math.min(total, 256); m++) {
-    let r = m;
-    const v = sizes.map((n) => { const x = r % n; r = Math.floor(r / n); return x; });
-    yield { sw: v.slice(0, yard.switches.length), tt: v.slice(yard.switches.length) };
-  }
-}
-
-test("neighboring slots are exactly one car length apart, across switches and turntables too", () => {
-  for (const lv of LEVELS) {
-    const yard = buildYard(lv.layout);
-    const at = new Map(yard.slots.map((sl) => [`${sl.track}:${sl.s.toFixed(4)}`, sl]));
-    for (const st of settings(yard)) for (const sl of yard.slots) for (const d of [1, -1]) {
-      const p = walk(yard, sl.track, sl.s, d, 1, st);
-      const moved = p.track !== sl.track || Math.abs(p.s - sl.s) > 1 - 1e-6;
-      if (!moved) continue; // ran into the end of the line
-      // where it lands is either another slot, or spare room at a buffer
-      const q = at.get(`${p.track}:${p.s.toFixed(4)}`);
-      const t = yard.tracks[p.track];
-      const nearBuffer = [t.from, t.to].some((n) => yard.nodes[n].kind === "buffer");
-      assert.ok(q || nearBuffer, `${lv.name}: one car on from slot ${sl.id} isn't a slot`);
-    }
-  }
-});
+const dir = new URL("./levels/", import.meta.url);
+const LEVELS = JSON.parse(readFileSync(new URL("order.json", dir))).map((id) => JSON.parse(readFileSync(new URL(`${id}.level.json`, dir))));
+const problems = (level) => loadLevel(level, { strict: false }).problems.map((p) => p.msg);
 
 test("a turntable connects its deck to whichever exits its ends point at", () => {
   const yard = buildYard({
@@ -58,10 +28,50 @@ test("a turntable connects its deck to whichever exits its ends point at", () =>
   }
 });
 
-test("no level starts with cars clashing beside a switch", () => {
-  for (const lv of LEVELS) {
-    const { yard, state } = loadLevel(lv);
-    const occ = new Set(state.pos);
-    for (const p of state.pos) for (const f of yard.slots[p].fouls) assert.ok(!occ.has(f), `${lv.name}: slots ${p} and ${f}`);
+test("track curves round a corner instead of kinking", () => {
+  const { def } = layoutOf({ track: [[[0, 0], [3, 0], [5, 2], [8, 2]]] });
+  const pts = buildYard(def).tracks.t0.pts;
+  for (let i = 2; i < pts.length; i++) {
+    const a = Math.atan2(pts[i - 1][1] - pts[i - 2][1], pts[i - 1][0] - pts[i - 2][0]);
+    const b = Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0]);
+    assert.ok(Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a))) < 0.1, `kink at point ${i - 1}`);
   }
+});
+
+test("a switch's points sit half a car back along the trunk", () => {
+  const { def } = layoutOf({ track: [[[0, 0], [6, 0]], [[3, 0], [4, 1], [6, 1]]] });
+  assert.deepEqual(def.nodes["3,0"], [2.5, 0]);
+  const yard = buildYard(def), S = yard.switches[0];
+  assert.equal(yard.tracks[S.trunk].len, 2.5);
+  assert.equal(yard.tracks[S.legs[0]].len, 3.5, "the straight leg goes first");
+});
+
+test("every spot in every level is on the track", () => {
+  for (const lv of LEVELS) {
+    const lay = layoutOf(lv), yard = buildYard(lay.def);
+    for (const [x, y] of lay.spots) assert.ok(locate(yard, x, y).dist < 1e-6, `${lv.name}: spot ${x},${y}`);
+  }
+});
+
+test("saving turns grid steps back into the same track", () => {
+  for (const lv of LEVELS) {
+    const edges = edgesOf(lv), again = edgesOf({ track: pathsOf(edges) });
+    assert.deepEqual([...again.keys()].sort(), [...edges.keys()].sort(), lv.name);
+  }
+});
+
+test("track that can't be built is a problem, not a crash", () => {
+  assert.deepEqual(problems({ track: [[[0, 0], [2, 0], [2, 2]]] }), ["too sharp a turn: 45° at most"]);
+  assert.deepEqual(problems({ track: [[[0, 0], [4, 0]], [[2, 0], [2, 2]]] }), ["a branch has to leave at 45°"]);
+  assert.deepEqual(problems({ track: [[[0, 0], [2, 2]], [[2, 0], [0, 2]]] }), ["too many tracks meet here"]);
+  assert.deepEqual(problems({ track: [[[0, 0], [1, 1]], [[1, 0], [0, 1]]] }), ["tracks can't cross"]);
+  assert.ok(problems({ track: [[[0, 0], [3, 0]]], turntables: [{ at: [2, 0], length: 1, exits: ["E"] }] }).includes("track runs into the turntable"));
+});
+
+test("cars can't start on top of each other, or side by side at a switch", () => {
+  const track = [[[0, 0], [6, 0]], [[3, 0], [4, 1], [6, 1]]];
+  assert.deepEqual(problems({ track, cars: [{ at: [1.5, 0] }, { at: [1.5, 0] }] }), ["two cars on top of each other"]);
+  assert.deepEqual(problems({ track, cars: [{ at: [3.5, 0] }, { at: [3.5, 0.5] }] }), ["two cars on top of each other", "two cars side by side at a switch"]);
+  // the next spot down the curving leg is far enough along
+  assert.deepEqual(problems({ track, cars: [{ at: [3.5, 0] }, { at: [4.5, 1] }] }), []);
 });

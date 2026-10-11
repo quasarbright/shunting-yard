@@ -239,10 +239,11 @@ export const LEVELS = [
     start: { head: "L", s1: "x C x A", s2: "D B" },
     goals: [{ track: "s1", end: "E1", cars: "A B C D" }],
     fewest: null, // too big to search; stars set by hand
-    // Too big for solve.mjs to finish. It can be: it was checked by replaying a
-    // solution in the engine, and the one-sided coupler can't matter here, since
-    // every track to the locomotive's right is a dead end, so it never gets past
-    // a car and every car stays on its coupler side.
+    // Too big for solve.mjs to finish. It can be finished: a faster search over
+    // slot positions (with today's rule that a car by the points locks the
+    // switch) found a 41-drive solution, and it replays in the engine to the
+    // goal. The one-sided coupler can't matter here: every track to the
+    // locomotive's right is a dead end, so it never gets past a car.
     searchTooBig: true,
     stars: [40, 55, 75],
   },

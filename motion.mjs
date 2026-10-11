@@ -124,11 +124,11 @@ function barrier(yard, state, front, skip) {
     }
     const nx = nextTrack(yard, track, nodeId, state);
     // a buffer, a switch set against it, or the edge of a turntable pit: the
-    // nose stops at the end of the line (against a switch, that's the points,
-    // just short of the stretch a car would block it from; see index.html)
+    // nose stops at the end of the line. Against a switch, that's where the
+    // leg's drawn track ends, just short of the switch's own track.
     if (!nx) {
       const why = S ? "against" : yard.nodes[nodeId].turntable ? "pit" : "buffer";
-      return { dist: Math.max(0, dist + room - 0.5), node: nodeId, why };
+      return { dist: Math.max(0, dist + room - (S ? POINTS + BODY / 2 : 0.5)), node: nodeId, why };
     }
     dist += room;
     if (dist > 1e3) break;
@@ -237,10 +237,14 @@ function moveChain(yard, state, lead, d, amount, pull, fixed = null) {
 
 // A switch can't be thrown while a car sits across the points, or while two
 // cars are coupled across them.
+// The switch's own track: the points themselves, and the first POINTS of each
+// leg (the stretch that's drawn missing on the leg it isn't set to). A switch
+// can't be thrown while a car's drawn body is over any of it.
+export const POINTS = 0.42;
 export function switchLocked(yard, state, k) {
   const S = yard.switches[k];
-  const tracksHere = [S.trunk, ...S.legs];
-  const on = state.at.some((p) => tracksHere.includes(p.track) && toNode(yard, p, S.id) < 0.5 - TOUCH);
+  const on = state.at.some((p) => (p.track === S.trunk && toNode(yard, p, S.id) < 0.5 - TOUCH)
+    || (S.legs.includes(p.track) && toNode(yard, p, S.id) < POINTS + BODY / 2 - TOUCH));
   if (on) return true;
   return joints(yard, state).some((j) => isCoupled(state, j.a, j.b) && j.across === S.id);
 }

@@ -281,7 +281,7 @@
     import { loadLevel } from "./setup.mjs";
     import { walk, nextTrack, pointOnTrack, setDeckAngle } from "./yard.mjs";
     import {
-      fromSlots, clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, REACH, goalSpots, atSpot,
+      fromSlots, clone, drive, coast, scan, switchLocked, throwSwitch, joints, toggleCoupling, isCoupled, goalMet, REACH, POINTS, goalSpots, atSpot,
       turnTurntable, turntableLocked, plateCovered, BODY,
     } from "./motion.mjs";
 
@@ -968,10 +968,10 @@
       for (const id of Object.keys(yard.tracks)) litAmt.set(id, ease(litAmt.get(id) ?? (lit.has(id) ? 1 : 0), lit.has(id) ? 1 : 0, 1 / 0.25));
 
       // track: dim everywhere, lamp-lit along the route the locomotives can reach.
-      // At a switch, the leg it isn't set to loses its stretch at the points (the
-      // steel stretch, JOINT long), fading as the switch throws. That's exactly the
-      // stretch a car over would block the switch, so a car is never left on track
-      // that's gone.
+      // At a switch, the leg it isn't set to loses its first POINTS, fading as the
+      // switch throws. That stretch is the switch's own track (drawn in steel on
+      // the leg it is set to), and a car over it blocks the switch, so a car is
+      // never left on track that's gone.
       const unset = (t, nodeId) => {
         const k = yard.switchIndex[nodeId];
         if (k == null) return 0;
@@ -981,14 +981,17 @@
       function strokeTrack(t, width, color, alpha, s0 = 0, s1 = t.len) {
         if (alpha <= 0.002) return;
         const cutA = unset(t, t.from), cutB = unset(t, t.to);
-        const a0 = Math.max(s0, cutA ? JOINT : 0), a1 = Math.min(s1, cutB ? t.len - JOINT : t.len);
+        const a0 = Math.max(s0, cutA ? POINTS : 0), a1 = Math.min(s1, cutB ? t.len - POINTS : t.len);
+        // square ends, so the short gap at a switched-away leg isn't covered by a rounded cap
+        ctx.lineCap = "butt";
         ctx.lineWidth = width; ctx.strokeStyle = color;
         if (a1 > a0) { ctx.globalAlpha = alpha; trackPath(t, a0, a1); ctx.stroke(); }
         // the fading stretch at a switched-away leg's points, within [s0, s1]
-        const e0 = Math.min(s1, JOINT), e1 = Math.max(s0, t.len - JOINT);
+        const e0 = Math.min(s1, POINTS), e1 = Math.max(s0, t.len - POINTS);
         if (cutA && s0 < e0) { ctx.globalAlpha = alpha * (1 - cutA); trackPath(t, s0, e0); ctx.stroke(); }
         if (cutB && e1 < s1) { ctx.globalAlpha = alpha * (1 - cutB); trackPath(t, e1, s1); ctx.stroke(); }
         ctx.globalAlpha = 1;
+        ctx.lineCap = "round";
       }
       // turntable decks swing round to their stop (always the same way round)
       yard.turntables.forEach((T, k) => {
@@ -1037,9 +1040,9 @@
       });
       for (const t of Object.values(yard.tracks)) strokeTrack(t, tw, C.dim, 1);
       for (const t of Object.values(yard.tracks)) strokeTrack(t, tw * 0.55, C.lit, litAmt.get(t.id));
-      // Switches. The track right at the points, where a car's body over it
-      // blocks the switch, is drawn in steel (fading with a leg as it's switched
-      // away), so you can see what counts as being on the switch.
+      // Switches. The switch's own track, where a car's body over it blocks the
+      // switch, is drawn in steel: on the leg it's set to, that reads as the
+      // blade; on the other leg it fades away, leaving the gap.
       yard.switches.forEach((S, k) => {
         const n = yard.nodes[S.id];
         const locked = switchLocked(yard, state, k);
@@ -1047,9 +1050,10 @@
         const flash = flashSwitch && flashSwitch.k === k && now - flashSwitch.t < 900;
         const hit = wireHit.get(`switch:${k}`), hitOn = hit && now - hit.t < 700;
         const col = flash || (hitOn && !hit.ok) ? C.danger : locked ? "#b5838b" : hot ? C.amberHi : C.steel;
+        // the switch's own track: the points, and the first POINTS of each leg
         for (const id of [S.trunk, ...S.legs]) {
-          const t = yard.tracks[id];
-          if (t.from === S.id) strokeTrack(t, tw, col, 1, 0, JOINT); else strokeTrack(t, tw, col, 1, t.len - JOINT, t.len);
+          const t = yard.tracks[id], len = id === S.trunk ? JOINT : POINTS;
+          if (t.from === S.id) strokeTrack(t, tw, col, 1, 0, len); else strokeTrack(t, tw, col, 1, t.len - len, t.len);
         }
         // on hover over its lever, the leg a pull would set, faintly
         if (hot && !locked) {

@@ -503,19 +503,29 @@ function drawOverlay(ctx, v) {
   // the selection: a dashed box, what's in it picked out, red where it can't go
   const box = (r, color) => {
     ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = color;
-    ctx.strokeRect(sx(r.x0) - 0.25 * L, sy(r.y0) - 0.25 * L, (r.x1 - r.x0 + 0.5) * L, (r.y1 - r.y0 + 0.5) * L);
+    ctx.strokeRect(sx(r.x0), sy(r.y0), (r.x1 - r.x0) * L, (r.y1 - r.y0) * L);
     ctx.setLineDash([]);
   };
-  if (stroke?.selecting && stroke.rect) box(stroke.rect, C.amberHi);
+  // what a selection holds, picked out: its track and the things on it
+  const pickOut = (s, dx, dy, col) => {
+    const sh = (p) => [p[0] + dx, p[1] + dy];
+    ctx.globalAlpha = 0.35;
+    for (const k of s.edges) { const [a, b] = edgeEnds(k); line(sh(a), sh(b), col, Math.max(5, L * 0.22)); }
+    ctx.globalAlpha = 1;
+    for (const k of s.pts) ring(sh(k.split(",").map((v) => Number(v) / 1000)), L * 0.3, col, 2);
+  };
+  // drawing a box: what it would catch if let go now
+  if (stroke?.selecting && stroke.rect) {
+    box(stroke.rect, C.amberHi);
+    const s = selectRect(stroke.rect);
+    if (s) pickOut(s, 0, 0, C.amberHi);
+  }
   if (sel) {
     const dx = stroke?.moving ? stroke.dx : 0, dy = stroke?.moving ? stroke.dy : 0;
     const bad = stroke?.moving && stroke.preview && !stroke.preview.ok;
-    const col = bad ? C.danger : C.amberHi, sh = (p) => [p[0] + dx, p[1] + dy];
+    const col = bad ? C.danger : C.amberHi;
     box({ x0: sel.rect.x0 + dx, y0: sel.rect.y0 + dy, x1: sel.rect.x1 + dx, y1: sel.rect.y1 + dy }, col);
-    ctx.globalAlpha = 0.35;
-    for (const k of sel.edges) { const [a, b] = edgeEnds(k); line(sh(a), sh(b), col, Math.max(5, L * 0.22)); }
-    ctx.globalAlpha = 1;
-    for (const k of sel.pts) ring(sh(k.split(",").map((v) => Number(v) / 1000)), L * 0.3, col, 2);
+    pickOut(sel, dx, dy, col);
   }
   if (!hover) return;
   // something a click would toggle: a switch, turntable or locomotive

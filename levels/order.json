@@ -1,9 +1,9 @@
 [
   "push",
   "pull",
-  "delivery",
+  "switch",
   "fetch",
-  "swap-two",
+  "swap",
   "run-around",
   "turn-around",
   "stepping-stone",

@@ -28,6 +28,9 @@
 // Things on the track sit at "spots": the middle of each grid step, and one
 // car length apart along a turntable's deck. `at` is the spot's position.
 
+// A level's file is named after its title: levels/<slug>.level.json
+export const slugOf = (name) => name.toLowerCase().trim().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
 export const DIRS = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
 export const DIR_NAMES = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]; // y grows downward
 export const vkey = (x, y) => `${x},${y}`;

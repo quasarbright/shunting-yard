@@ -5,10 +5,12 @@
 // Everything in this folder is served as-is, never cached (so an edited
 // module is always the one that loads). The editor uses three routes:
 //   GET  /api/levels          every level file: { order, levels: [{ id, name }] }
-//   PUT  /api/levels/<id>     write levels/<id>.level.json
+//   PUT  /api/levels/<id>     save the level that was <id>: to levels/<slug of its name>.level.json
+//                             (renaming it, in order.json too, if its name changed)
 //   PUT  /api/order           write levels/order.json (the levels in the game, in order)
 import { createServer } from "node:http";
-import { readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, readdir, stat, unlink } from "node:fs/promises";
+import { slugOf } from "./grid.mjs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,13 +66,23 @@ async function api(req, res, path) {
     await writeFile(join(LEVELS, "order.json"), JSON.stringify(order, null, 2) + "\n");
     return send(res, 200, { ok: true });
   }
+  // Save a level. Its file is named after its title, so a level whose title
+  // changed moves to a new file, keeping its place in the game.
   const m = path.match(/^\/api\/levels\/([^/]+)$/);
   if (req.method === "PUT" && m) {
-    const id = decodeURIComponent(m[1]);
-    if (!ID.test(id)) return send(res, 400, { error: "a level id is lowercase letters, digits and dashes" });
+    const was = decodeURIComponent(m[1]);
     const level = await bodyOf(req);
-    await writeFile(join(LEVELS, `${id}.level.json`), formatLevel(level));
-    return send(res, 200, { ok: true });
+    const id = slugOf(level.name || "");
+    if (!ID.test(id)) return send(res, 400, { error: "give the level a name first" });
+    const file = (x) => join(LEVELS, `${x}.level.json`);
+    if (id !== was && (await stat(file(id)).catch(() => null))) return send(res, 409, { error: `there's already a level called ${level.name}` });
+    await writeFile(file(id), formatLevel(level));
+    if (id !== was && ID.test(was)) {
+      await unlink(file(was)).catch(() => {});
+      const order = JSON.parse(await readFile(join(LEVELS, "order.json"), "utf8"));
+      if (order.includes(was)) await writeFile(join(LEVELS, "order.json"), JSON.stringify(order.map((x) => (x === was ? id : x)), null, 2) + "\n");
+    }
+    return send(res, 200, { ok: true, id });
   }
   send(res, 404, { error: "no such route" });
 }

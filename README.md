@@ -17,8 +17,9 @@ editor needs the server.
 
 ## Levels
 
-Each level is a file in `levels/`, `<id>.level.json`; the format is described
-at the top of `grid.mjs`. `levels/order.json` lists the levels in the game, in
+Each level is a file in `levels/`, named after its title (`Hand-off` is
+`hand-off.level.json`; saving under a new title renames the file); the format
+is described at the top of `grid.mjs`. `levels/order.json` lists the levels in the game, in
 order. Anything else in `levels/` is a draft. The editor's Levels button opens
 levels, makes new ones, and moves them in and out of the game.
 

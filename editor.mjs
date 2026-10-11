@@ -4,7 +4,7 @@
 // level on screen can always be played.
 import { createGame, C, CAR_COLORS, thumbSvg } from "./game.mjs";
 import { loadLevel } from "./setup.mjs";
-import { layoutOf, edgesOf, pathsOf, ekey, DIRS, DIR_NAMES, vkey, dirOf, turnBetween } from "./grid.mjs";
+import { layoutOf, edgesOf, pathsOf, ekey, DIRS, DIR_NAMES, vkey, dirOf, turnBetween, slugOf } from "./grid.mjs";
 import { goalMet, joints } from "./motion.mjs";
 import { walk } from "./yard.mjs";
 
@@ -585,10 +585,18 @@ function confirmLeave() {
   return snap(doc) === savedSnap || confirm("This level has unsaved changes. Leave it anyway?");
 }
 
+// The file is named after the title, so saving after a rename moves the file
+// (the server keeps its place in the game).
 async function save() {
   if (!docId) return;
-  const res = await fetch(`/api/levels/${docId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFile(doc)) });
-  if (!res.ok) return flash(`couldn't save: ${(await res.json()).error}`);
+  const res = await fetch(`/api/levels/${encodeURIComponent(docId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFile(doc)) });
+  const out = await res.json();
+  if (!res.ok) return flash(`couldn't save: ${out.error}`);
+  if (out.id !== docId) {
+    thumbs.delete(docId);
+    docId = out.id;
+    history.replaceState(null, "", `?level=${encodeURIComponent(docId)}`);
+  }
   savedSnap = snap(doc);
   await loadCatalog();
   refresh();
@@ -596,11 +604,10 @@ async function save() {
   flash("Saved", "good", 1200);
 }
 
-const slug = (s) => s.toLowerCase().trim().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 async function create() {
-  const name = $("newName").value.trim(), id = slug(name);
+  const name = $("newName").value.trim(), id = slugOf(name);
   if (!id) return;
-  if (catalog.levels.some((l) => l.id === id)) return flash(`there's already a level called ${id}`);
+  if (catalog.levels.some((l) => l.id === id)) return flash(`there's already a level called ${name}`);
   if (!confirmLeave()) return;
   doc = blank(name); docId = id; savedSnap = ""; past = []; future = [];
   await save();

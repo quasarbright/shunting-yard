@@ -4,7 +4,7 @@
 // level on screen can always be played.
 import { createGame, C, CAR_COLORS, thumbSvg } from "./game.mjs";
 import { loadLevel } from "./setup.mjs";
-import { layoutOf, edgesOf, pathsOf, ekey, DIRS, DIR_NAMES, vkey, dirOf, turnBetween, slugOf } from "./grid.mjs";
+import { layoutOf, edgesOf, pathsOf, ekey, edgeEnds, DIRS, DIR_NAMES, vkey, dirOf, turnBetween, slugOf } from "./grid.mjs";
 import { goalMet, joints } from "./motion.mjs";
 import { walk } from "./yard.mjs";
 
@@ -114,11 +114,11 @@ function refresh({ refit = false } = {}) {
 
 function undo() {
   if (!past.length || playing) return;
-  future.push(snap(doc)); doc = fromFile(JSON.parse(past.pop())); lastMerge = null; refresh();
+  future.push(snap(doc)); doc = fromFile(JSON.parse(past.pop())); lastMerge = null; clearSelection(); refresh();
 }
 function redo() {
   if (!future.length || playing) return;
-  past.push(snap(doc)); doc = fromFile(JSON.parse(future.pop())); lastMerge = null; refresh();
+  past.push(snap(doc)); doc = fromFile(JSON.parse(future.pop())); lastMerge = null; clearSelection(); refresh();
 }
 
 // ---------- the view ----------
@@ -152,6 +152,7 @@ let strokeId = 0;
 
 const HINTS = {
   track: "Drag across the grid to lay track. Click a switch, turntable or locomotive to change how it starts, or between two cars to couple them.",
+  select: "Drag a box around part of the level, then drag inside it to move it. Delete removes it; arrow keys nudge it.",
   erase: "Click or drag over anything to remove it.",
   turntable: "Click to place a turntable, on track or off it. Click its middle to lengthen it; click just outside the rim to add an exit.",
   loco: "Click a spot to put a locomotive there. Click one to turn its coupler round.",
@@ -177,6 +178,8 @@ function showHint() {
 }
 
 function setTool(t) {
+  if (t !== "select") clearSelection();
+  canvas.style.cursor = "default";
   tool = t;
   for (const b of document.querySelectorAll("[data-tool]")) b.classList.toggle("is-active", b.dataset.tool === t);
   buildPalette();
@@ -246,6 +249,66 @@ function erase(target, merge) {
     else if (target.kind === "turntable") d.turntables.splice(target.i, 1);
     else d[target.kind].splice(target.i, 1);
   }, { merge });
+}
+
+// ---------- select and move ----------
+// A selection is a box and what was inside it when it was drawn: grid steps
+// with both ends in the box, and things whose `at` is in it (cars, goals,
+// plates, turntables, switches). Moving it moves them by whole grid steps;
+// wires and couplings keep hold of whatever they were attached to.
+let sel = null; // { rect: { x0, y0, x1, y1 }, edges: Set(ekey), pts: Set(pkey) }
+function clearSelection() { sel = null; }
+const inRect = (p, r, slop = 1e-6) => p[0] >= r.x0 - slop && p[0] <= r.x1 + slop && p[1] >= r.y0 - slop && p[1] <= r.y1 + slop;
+const rectOf = (a, b) => ({ x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) });
+function selectRect(r) {
+  const edges = new Set([...doc.edges].filter(([, [a, b]]) => inRect(a, r) && inRect(b, r)).map(([k]) => k));
+  const pts = new Set();
+  for (const it of [...doc.cars, ...doc.goals, ...doc.plates, ...doc.turntables, ...doc.switches]) if (inRect(it.at, r)) pts.add(pkey(it.at));
+  for (const S of lay.switchAt.values()) if (inRect(S.at, r)) pts.add(pkey(S.at));
+  return edges.size || pts.size ? { rect: r, edges, pts } : null;
+}
+function moveSelection(d, s, dx, dy) {
+  const sh = (p) => [p[0] + dx, p[1] + dy], picked = (p) => s.pts.has(pkey(p));
+  const moved = [...s.edges].map((k) => d.edges.get(k)).filter(Boolean);
+  for (const k of s.edges) d.edges.delete(k);
+  for (const [a, b] of moved) d.edges.set(ekey(sh(a), sh(b)), [sh(a), sh(b)]);
+  for (const list of [d.cars, d.goals, d.plates, d.turntables, d.switches]) for (const it of list) if (picked(it.at)) it.at = sh(it.at);
+  // a wire's far end goes wherever its switch or turntable went
+  for (const p of d.plates) p.wires = p.wires.map((w) => (picked(w) ? sh(w) : w));
+  d.couplings = d.couplings.map((pair) => pair.map((p) => (picked(p) ? sh(p) : p)));
+}
+function deleteSelection(d, s) {
+  for (const k of s.edges) d.edges.delete(k);
+  const keep = (it) => !s.pts.has(pkey(it.at));
+  for (const k of ["cars", "goals", "plates", "turntables", "switches"]) d[k] = d[k].filter(keep);
+}
+// the selection after it's moved
+function shifted(s, dx, dy) {
+  const sh = (p) => [p[0] + dx, p[1] + dy];
+  return {
+    rect: { x0: s.rect.x0 + dx, y0: s.rect.y0 + dy, x1: s.rect.x1 + dx, y1: s.rect.y1 + dy },
+    edges: new Set([...s.edges].map((k) => { const [a, b] = edgeEnds(k); return ekey(sh(a), sh(b)); })),
+    pts: new Set([...s.pts].map((k) => pkey(sh(k.split(",").map((v) => Number(v) / 1000))))),
+  };
+}
+// what moving the selection would make, and whether that's allowed
+// (a move that would leave something off the track, which tidying up would
+// then throw away, isn't allowed)
+function tryMove(dx, dy) {
+  const next = copy(doc);
+  moveSelection(next, sel, dx, dy);
+  const count = (d) => d.cars.length + d.goals.length + d.plates.length + d.couplings.length + d.plates.reduce((n, p) => n + p.wires.length, 0);
+  const before = count(next);
+  prune(next);
+  if (count(next) < before) return { next, ok: false, why: "something would end up off the track" };
+  const lv = loadLevel(toFile(next), { strict: false });
+  return { next, ok: !lv.problems.length, why: lv.problems[0]?.msg };
+}
+function nudge(dx, dy) {
+  if (!sel) return;
+  const t = tryMove(dx, dy);
+  if (!t.ok) return flash(t.why);
+  if (attempt((d) => moveSelection(d, sel, dx, dy))) sel = shifted(sel, dx, dy);
 }
 
 // the end of a locomotive's coupler that faces mostly right (or down)
@@ -401,7 +464,9 @@ const game = createGame($("yard"), {
   rotate: false,
   nudgeEl: $("nudge"),
   view: () => (playing ? null : view),
-  margins: () => (playing ? { top: 100, bottom: 100, side: 30 } : { top: 80, bottom: 90, left: 84, right: 24 }),
+  // playing, the level sits just as it does in the game
+  margins: (W) => (playing ? (W <= 600 ? { top: 116, bottom: 116, side: 16 } : { top: 124, bottom: 124, side: 24 }) : { top: 80, bottom: 90, left: 84, right: 24 }),
+  onHistory: () => { $("playUndo").disabled = !game.canUndo; $("playReset").disabled = !game.canUndo; },
   onWin: () => setTimeout(() => { if (playing && game.solved) $("win").hidden = false; }, 350),
   underlay: drawGrid,
   overlay: drawOverlay,
@@ -435,6 +500,23 @@ function drawOverlay(ctx, v) {
   }
   // things that are allowed but probably not meant, where they are
   for (const wn of warnings) if (wn.at) ring(wn.at, L * 0.55, C.danger, 2.5, [6, 4]);
+  // the selection: a dashed box, what's in it picked out, red where it can't go
+  const box = (r, color) => {
+    ctx.setLineDash([6, 5]); ctx.lineWidth = 2; ctx.strokeStyle = color;
+    ctx.strokeRect(sx(r.x0) - 0.25 * L, sy(r.y0) - 0.25 * L, (r.x1 - r.x0 + 0.5) * L, (r.y1 - r.y0 + 0.5) * L);
+    ctx.setLineDash([]);
+  };
+  if (stroke?.selecting && stroke.rect) box(stroke.rect, C.amberHi);
+  if (sel) {
+    const dx = stroke?.moving ? stroke.dx : 0, dy = stroke?.moving ? stroke.dy : 0;
+    const bad = stroke?.moving && stroke.preview && !stroke.preview.ok;
+    const col = bad ? C.danger : C.amberHi, sh = (p) => [p[0] + dx, p[1] + dy];
+    box({ x0: sel.rect.x0 + dx, y0: sel.rect.y0 + dy, x1: sel.rect.x1 + dx, y1: sel.rect.y1 + dy }, col);
+    ctx.globalAlpha = 0.35;
+    for (const k of sel.edges) { const [a, b] = edgeEnds(k); line(sh(a), sh(b), col, Math.max(5, L * 0.22)); }
+    ctx.globalAlpha = 1;
+    for (const k of sel.pts) ring(sh(k.split(",").map((v) => Number(v) / 1000)), L * 0.3, col, 2);
+  }
   if (!hover) return;
   // something a click would toggle: a switch, turntable or locomotive
   const toggle = (tg) => {
@@ -501,6 +583,12 @@ canvas.addEventListener("pointerdown", (e) => {
     erase(eraseTarget(w), id);
     return;
   }
+  if (tool === "select") {
+    // inside the selection: move it; anywhere else: draw a new one
+    if (sel && inRect(w, sel.rect, 0.2)) stroke = { id, moving: true, start: w, dx: 0, dy: 0, preview: null };
+    else { sel = null; stroke = { id, selecting: true, start: w, rect: null }; }
+    return;
+  }
   if (tool === "track") {
     // a drag lays track; a click (on a switch, turntable or locomotive) toggles it
     stroke = { id, last: [Math.round(w[0]), Math.round(w[1])], dead: false, start: w, laid: false };
@@ -516,8 +604,19 @@ canvas.addEventListener("pointermove", (e) => {
   if (playing) return;
   const w = world(e);
   hover = w;
+  if (tool === "select") canvas.style.cursor = stroke?.moving || (sel && inRect(w, sel.rect, 0.2)) ? "move" : "crosshair";
   if (!stroke) return;
   if (stroke.erasing) { erase(eraseTarget(w), stroke.id); return; }
+  if (stroke.selecting) { stroke.rect = rectOf(stroke.start, w); return; }
+  if (stroke.moving) {
+    // whole grid steps; show the result as it would be, if it's allowed
+    const dx = Math.round(w[0] - stroke.start[0]), dy = Math.round(w[1] - stroke.start[1]);
+    if (dx === stroke.dx && dy === stroke.dy) return;
+    stroke.dx = dx; stroke.dy = dy;
+    stroke.preview = dx || dy ? tryMove(dx, dy) : null;
+    game.load(toFile(stroke.preview?.ok ? stroke.preview.next : doc), { play: false });
+    return;
+  }
   if (tool === "track" && !stroke.dead) {
     // the nearest grid point, once the pointer's close to it
     const g = [Math.round(w[0]), Math.round(w[1])];
@@ -532,7 +631,14 @@ canvas.addEventListener("pointermove", (e) => {
 });
 const endStroke = (e) => {
   if (!stroke) return;
-  if (stroke.start && !stroke.laid && !stroke.dead && e && dist(world(e), stroke.start) < 0.3) clickTool(stroke.start);
+  // a track drag that didn't go anywhere is a click
+  if (stroke.last && !stroke.laid && !stroke.dead && e && dist(world(e), stroke.start) < 0.3) clickTool(stroke.start);
+  if (stroke.selecting) sel = stroke.rect ? selectRect(stroke.rect) : null;
+  if (stroke.moving && (stroke.dx || stroke.dy)) {
+    const { dx, dy, preview } = stroke;
+    if (preview.ok && attempt((d) => moveSelection(d, sel, dx, dy))) sel = shifted(sel, dx, dy);
+    else { flash(preview.why || "can't move it there"); refresh(); }
+  }
   if (stroke.wire && e) {
     const w = world(e), to = wireTarget(w), i = stroke.wire.plate;
     if (to) {
@@ -552,7 +658,10 @@ canvas.addEventListener("pointerleave", () => { if (!stroke) hover = null; });
 function setPlaying(on) {
   playing = on;
   $("rail").hidden = on;
+  $("controls").hidden = !on;
+  $("hint").hidden = on;
   $("win").hidden = true;
+  clearSelection();
   $("warn").hidden = on || !warnings.length;
   $("play").querySelector("span").textContent = on ? "Edit" : "Play";
   $("play").querySelector("svg").innerHTML = on ? '<path d="M4 20h4L19 9l-4-4L4 16z"/>' : '<path d="M7 4.5v15l12-7.5z"/>';
@@ -567,15 +676,18 @@ let catalog = { order: [], levels: [] };
 async function loadCatalog() { catalog = await (await fetch("/api/levels")).json(); }
 async function fetchLevel(id) { return (await fetch(`levels/${id}.level.json`, { cache: "no-store" })).json(); }
 
+// Where the level is: its place in the game and its file. A new title shows
+// the file it'll be saved as straight away.
 function updateWhere() {
-  const i = catalog.order.indexOf(docId);
-  $("where").innerHTML = !docId ? "" : i >= 0 ? `level <b>${i + 1}</b> in the game · ${docId}` : `draft, not in the game · ${docId}`;
+  const i = catalog.order.indexOf(docId), next = slugOf(doc.name);
+  const file = next && next !== docId ? `${docId} → ${next} when saved` : docId;
+  $("where").innerHTML = !docId ? "" : i >= 0 ? `level <b>${i + 1}</b> in the game · ${file}` : `draft, not in the game · ${file}`;
 }
 
 async function openLevel(id) {
   if (!confirmLeave()) return;
   doc = fromFile(await fetchLevel(id));
-  docId = id; savedSnap = snap(doc); past = []; future = []; lastMerge = null;
+  docId = id; savedSnap = snap(doc); past = []; future = []; lastMerge = null; clearSelection();
   history.replaceState(null, "", `?level=${encodeURIComponent(id)}`);
   if (playing) setPlaying(false);
   refresh({ refit: true });
@@ -712,6 +824,8 @@ $("play").onclick = () => setPlaying(!playing);
 $("open").onclick = showLevels;
 $("winAgain").onclick = () => { $("win").hidden = true; game.load(toFile(doc), { play: true }); };
 $("winEdit").onclick = () => setPlaying(false);
+$("playUndo").onclick = () => { game.undo(); $("win").hidden = true; };
+$("playReset").onclick = () => { game.reset(); $("win").hidden = true; };
 $("closeLevels").onclick = closeLevels;
 $("levels").addEventListener("pointerdown", (e) => { if (e.target === $("levels")) closeLevels(); });
 $("create").onclick = create;
@@ -721,25 +835,33 @@ for (const f of ["name"]) {
     if (lastMerge !== `field:${f}`) { past.push(snap(doc)); future = []; lastMerge = `field:${f}`; }
     doc[f] = $(f).value;
     refresh();
+    updateWhere();
   });
   $(f).addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "Escape") e.target.blur(); });
 }
 window.addEventListener("beforeunload", (e) => { if (snap(doc) !== savedSnap) e.preventDefault(); });
 
-const KEYS = { t: "track", e: "erase", u: "turntable", l: "loco", c: "car", g: "goal", p: "plate" };
+const KEYS = { v: "select", t: "track", e: "erase", u: "turntable", l: "loco", c: "car", g: "goal", p: "plate" };
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 window.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key === "s") { e.preventDefault(); save(); return; }
   if (e.target.closest("input, textarea")) return;
   if (!$("levels").hidden) { if (e.key === "Escape") closeLevels(); return; }
   if (e.key === " " || (playing && e.key === "Escape")) { e.preventDefault(); setPlaying(!playing); return; }
+  // playing: the game's keys (⌘Z undoes a move too, not an edit)
   if (playing) {
-    if (e.key === "z" && !mod) { game.undo(); $("win").hidden = true; }
-    else if (e.key === "r" && !mod) { game.reset(); $("win").hidden = true; }
+    if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); $("playUndo").click(); }
+    else if (e.key === "r" && !mod) $("playReset").click();
     return;
   }
   if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if (mod) return;
+  if (sel) {
+    if (e.key === "Escape") { clearSelection(); return; }
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); attempt((d) => deleteSelection(d, sel)); clearSelection(); return; }
+    if (ARROWS[e.key]) { e.preventDefault(); nudge(...ARROWS[e.key]); return; }
+  }
   if (e.key === "o") { showLevels(); return; }
   if (KEYS[e.key]) { setTool(KEYS[e.key]); return; }
   const n = Number(e.key);

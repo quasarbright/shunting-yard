@@ -592,7 +592,7 @@ export function createGame(canvas, opts = {}) {
       ctx.fill();
     }
     ctx.restore();
-    if (car.name && !(car.loco && cars.filter((k) => k.loco).length === 1)) {
+    if (car.name && !car.loco) {
       ctx.fillStyle = "#121619";
       ctx.font = `600 ${Math.round(L * 0.26)}px "IBM Plex Mono", monospace`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";

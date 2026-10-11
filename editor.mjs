@@ -360,10 +360,10 @@ function drawOverlay(ctx, v) {
   }
   if (tool === "set") for (const S of lay.switchAt.values()) ring(S.points, L * 0.3, "rgba(242,169,59,.5)", 2, [4, 4]);
   if (!hover) return;
-  if (tool === "track") {
+  if (tool === "track" && !stroke?.erasing) {
     const g = [Math.round(hover[0]), Math.round(hover[1])];
     ring(g, Math.max(5, L * 0.14), C.amberHi, 2.5);
-    if (stroke && !stroke.dead) line(stroke.last, g, "rgba(255,192,97,.5)", Math.max(3, L * 0.1));
+    if (stroke?.last && !stroke.dead) line(stroke.last, g, "rgba(255,192,97,.5)", Math.max(3, L * 0.1));
   } else if (tool === "erase" || stroke?.erasing) {
     const t = eraseTarget(hover);
     if (t?.kind === "edge") { const [a, b] = doc.edges.get(t.k); line(a, b, C.danger, Math.max(4, L * 0.16)); }
